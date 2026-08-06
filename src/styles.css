@@ -63,14 +63,14 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
+  --background: oklch(0.995 0.004 220);
+  --foreground: oklch(0.21 0.03 250);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.55 0.13 220);
+  --primary-foreground: oklch(0.99 0.005 220);
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.208 0.042 265.755);
   --muted: oklch(0.968 0.007 247.896);
@@ -82,11 +82,11 @@
   --border: oklch(0.929 0.013 255.508);
   --input: oklch(0.929 0.013 255.508);
   --ring: oklch(0.704 0.04 256.788);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --chart-1: oklch(0.58 0.13 225);
+  --chart-2: oklch(0.72 0.13 185);
+  --chart-3: oklch(0.45 0.1 250);
+  --chart-4: oklch(0.78 0.14 155);
+  --chart-5: oklch(0.68 0.15 60);
   --sidebar: oklch(0.984 0.003 247.858);
   --sidebar-foreground: oklch(0.129 0.042 264.695);
   --sidebar-primary: oklch(0.208 0.042 265.755);
@@ -141,4 +141,49 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+}
+
+/* Chat markdown rhythm for assistant answers */
+.prose-chat :where(p) {
+  margin-block: 0.35rem;
+  line-height: 1.65;
+}
+.prose-chat :where(ul, ol) {
+  margin-block: 0.4rem;
+  padding-inline-start: 1.15rem;
+  list-style: revert;
+}
+.prose-chat :where(li) {
+  margin-block: 0.15rem;
+}
+.prose-chat :where(h1, h2, h3) {
+  margin-block: 0.7rem 0.3rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.prose-chat :where(table) {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin-block: 0.6rem;
+  font-size: 0.8rem;
+}
+.prose-chat :where(th, td) {
+  border: 1px solid var(--color-border);
+  padding: 0.35rem 0.55rem;
+  text-align: left;
+}
+.prose-chat :where(th) {
+  background-color: var(--color-secondary);
+  font-weight: 600;
+}
+.prose-chat :where(code) {
+  background-color: var(--color-secondary);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.8em;
+}
+.prose-chat :where(strong) {
+  font-weight: 600;
 }
