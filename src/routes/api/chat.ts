@@ -80,7 +80,7 @@ export const Route = createFileRoute("/api/chat")({
           const result = streamText({
             model: lovable.responses("openai/gpt-5.6-sol"),
             system: `${SYSTEM_PROMPT}\n\n# DATA CURRENTLY AVAILABLE TO YOU\n${datasetBlock}`,
-            messages: convertToModelMessages(messages as UIMessage[]),
+            messages: await convertToModelMessages(messages as UIMessage[]),
             providerOptions: {
               openai: {
                 forceReasoning: true,
