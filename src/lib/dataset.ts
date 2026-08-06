@@ -34,7 +34,7 @@ export async function parseFile(file: File): Promise<{ rows: Row[]; rowCount: nu
     const parsed = JSON.parse(text);
     const rows: Row[] = Array.isArray(parsed)
       ? (parsed as Row[])
-      : Array.isArray((parsed as Row)?.data)
+      : Array.isArray((parsed as Row)?.['data'])
         ? ((parsed as { data: Row[] }).data)
         : [parsed as Row];
     return { rows, rowCount: rows.length };
@@ -44,8 +44,9 @@ export async function parseFile(file: File): Promise<{ rows: Row[]; rowCount: nu
     const XLSX = await import("xlsx");
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { cellDates: true });
-    const sheetName = workbook.SheetNames[0];
+    const sheetName = workbook.SheetNames[0] ?? "";
     const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return { rows: [], rowCount: 0 };
     const rows = XLSX.utils.sheet_to_json<Row>(sheet, { defval: null });
     return { rows, rowCount: rows.length };
   }
@@ -110,8 +111,8 @@ function profileColumn(name: string, values: unknown[]): ColumnProfile {
   }
   if (inferredType === "date" && strings.length) {
     const sorted = [...strings].sort();
-    profile.min = sorted[0];
-    profile.max = sorted[sorted.length - 1];
+    profile.min = sorted[0] ?? "";
+    profile.max = sorted[sorted.length - 1] ?? "";
   }
   if (distinct.size <= 40) profile.topValues = topValues;
   else profile.topValues = topValues.slice(0, 8);
@@ -170,7 +171,9 @@ export function codingHints(dataset: Dataset): string[] {
       ["HCPCS codes", share(HCPCS)],
       ["CDT dental codes", share(CDT)],
     ];
-    const [label, ratio] = checks.sort((a, b) => b[1] - a[1])[0];
+    const best = checks.sort((a, b) => b[1] - a[1])[0];
+    if (!best) continue;
+    const [label, ratio] = best;
     if (ratio > 0.5) {
       hints.push(
         `Column "${column.name}" looks like ${label} (${Math.round(ratio * 100)}% of values match; ${
