@@ -95,10 +95,27 @@ export const Route = createFileRoute("/api/chat")({
           const response = result.toUIMessageStreamResponse({
             originalMessages: messages as UIMessage[],
             sendReasoning: true,
+            onError: (streamError) => {
+              const raw =
+                streamError instanceof Error
+                  ? streamError.message
+                  : typeof streamError === "string"
+                    ? streamError
+                    : JSON.stringify(streamError);
+              console.error("[api/chat] stream error:", raw);
+              if (/402|not enough credits|payment_required/i.test(raw)) {
+                return "This workspace is out of AI credits, so the assistant cannot answer right now. Add credits in workspace billing settings and try again.";
+              }
+              if (/429|rate limit/i.test(raw)) {
+                return "Too many requests right now — please retry in a few seconds.";
+              }
+              return raw || "The AI request failed.";
+            },
             headers: getLovableAiGatewayResponseHeaders(undefined, {
               ...(initialRunId ? { "X-Lovable-AIG-Run-ID": initialRunId } : {}),
             }),
           });
+
 
           return withLovableAiGatewayRunIdHeader(response, runIdFetch);
         } catch (error) {
