@@ -96,21 +96,27 @@ export const Route = createFileRoute("/api/chat")({
             originalMessages: messages as UIMessage[],
             sendReasoning: true,
             onError: (streamError) => {
-              const raw =
-                streamError instanceof Error
-                  ? streamError.message
-                  : typeof streamError === "string"
-                    ? streamError
-                    : JSON.stringify(streamError);
+              const err = streamError as
+                | (Error & { statusCode?: number; responseBody?: string; data?: unknown })
+                | string;
+              const message = typeof err === "string" ? err : err?.message ?? "";
+              const status = typeof err === "string" ? undefined : err?.statusCode;
+              const body =
+                typeof err === "string"
+                  ? ""
+                  : `${err?.responseBody ?? ""} ${err?.data ? JSON.stringify(err.data) : ""}`;
+              const raw = `${status ?? ""} ${message} ${body}`.trim();
               console.error("[api/chat] stream error:", raw);
-              if (/402|not enough credits|payment_required/i.test(raw)) {
-                return "This workspace is out of AI credits, so the assistant cannot answer right now. Add credits in workspace billing settings and try again.";
+
+              if (status === 402 || /not enough credits|payment required|payment_required/i.test(raw)) {
+                return "This workspace is out of AI credits, so the assistant can't answer right now. Add credits in your workspace billing settings, then resend your message.";
               }
-              if (/429|rate limit/i.test(raw)) {
+              if (status === 429 || /rate limit|too many requests/i.test(raw)) {
                 return "Too many requests right now — please retry in a few seconds.";
               }
-              return raw || "The AI request failed.";
+              return message || "The AI request failed.";
             },
+
             headers: getLovableAiGatewayResponseHeaders(undefined, {
               ...(initialRunId ? { "X-Lovable-AIG-Run-ID": initialRunId } : {}),
             }),
