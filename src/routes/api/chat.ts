@@ -1,15 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
-import {
-  createLovableAiGatewayRunIdFetch,
-  getLovableAiGatewayResponseHeaders,
-  getLovableAiGatewayRunId,
-  withLovableAiGatewayRunIdHeader,
-} from "@/lib/ai-gateway.server";
 
 type DatasetPayload = { name: string; context: string };
 type ChatRequestBody = { messages?: unknown; datasets?: unknown };
+
 
 const SYSTEM_PROMPT = `You are the Poly View Health data assistant: a senior healthcare data analyst and general-purpose AI collaborator working alongside claims analysts.
 
@@ -49,9 +44,9 @@ export const Route = createFileRoute("/api/chat")({
           return new Response("Messages are required", { status: 400 });
         }
 
-        const apiKey = process.env["LOVABLE_API_KEY"];
+        const apiKey = process.env["ANTHROPIC_API_KEY"];
         if (!apiKey) {
-          return new Response("Missing LOVABLE_API_KEY", { status: 500 });
+          return new Response("Missing ANTHROPIC_API_KEY", { status: 500 });
         }
 
         const datasets = Array.isArray(body.datasets) ? (body.datasets as DatasetPayload[]) : [];
@@ -64,35 +59,16 @@ export const Route = createFileRoute("/api/chat")({
               .join("\n\n")
           : "No file has been uploaded yet.";
 
-        const initialRunId = getLovableAiGatewayRunId(request);
-        const runIdFetch = createLovableAiGatewayRunIdFetch(initialRunId);
-        const lovable = createOpenAI({
-          baseURL: "https://ai.gateway.lovable.dev/v1",
-          apiKey,
-          headers: {
-            "Lovable-API-Key": apiKey,
-            "X-Lovable-AIG-SDK": "vercel-ai-sdk",
-          },
-          fetch: runIdFetch.fetch,
-        });
+        const anthropic = createAnthropic({ apiKey });
 
         try {
           const result = streamText({
-            model: lovable.responses("openai/gpt-5.6-sol"),
+            model: anthropic("claude-sonnet-4-5-20250929"),
             system: `${SYSTEM_PROMPT}\n\n# DATA CURRENTLY AVAILABLE TO YOU\n${datasetBlock}`,
             messages: await convertToModelMessages(messages as UIMessage[]),
-            providerOptions: {
-              openai: {
-                forceReasoning: true,
-                reasoningEffort: "medium",
-                reasoningSummary: "auto",
-                store: false,
-                include: ["reasoning.encrypted_content"],
-              },
-            },
           });
 
-          const response = result.toUIMessageStreamResponse({
+          return result.toUIMessageStreamResponse({
             originalMessages: messages as UIMessage[],
             sendReasoning: true,
             onError: (streamError) => {
@@ -108,22 +84,19 @@ export const Route = createFileRoute("/api/chat")({
               const raw = `${status ?? ""} ${message} ${body}`.trim();
               console.error("[api/chat] stream error:", raw);
 
-              if (status === 402 || /not enough credits|payment required|payment_required/i.test(raw)) {
-                return "This workspace is out of AI credits, so the assistant can't answer right now. Add credits in your workspace billing settings, then resend your message.";
+              if (status === 401 || /invalid x-api-key|authentication_error/i.test(raw)) {
+                return "The Claude API key was rejected. Please check the key saved for this project.";
+              }
+              if (status === 402 || /credit balance is too low|billing/i.test(raw)) {
+                return "The Anthropic account is out of credit. Add credit in the Anthropic console, then resend your message.";
               }
               if (status === 429 || /rate limit|too many requests/i.test(raw)) {
                 return "Too many requests right now — please retry in a few seconds.";
               }
               return message || "The AI request failed.";
             },
-
-            headers: getLovableAiGatewayResponseHeaders(undefined, {
-              ...(initialRunId ? { "X-Lovable-AIG-Run-ID": initialRunId } : {}),
-            }),
           });
 
-
-          return withLovableAiGatewayRunIdHeader(response, runIdFetch);
         } catch (error) {
           const message = error instanceof Error ? error.message : "AI request failed";
           const status = /rate limit|429/i.test(message)
