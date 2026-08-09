@@ -1,4 +1,4 @@
-import { defineMcp, type ToolDefinition } from "@lovable.dev/mcp-js";
+import { defineMcp } from "@lovable.dev/mcp-js";
 import profileDataset from "./tools/profile-dataset";
 import detectBillingAnomalies from "./tools/detect-billing-anomalies";
 import askAnalyst from "./tools/ask-analyst";
