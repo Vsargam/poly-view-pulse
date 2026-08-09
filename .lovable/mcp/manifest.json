@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "sdk_version": "0.26.1",
+  "path": "/mcp",
+  "auth": {
+    "type": "none"
+  },
+  "mcp": {
+    "server": {
+      "name": "poly-view-pulse",
+      "version": "0.1.0",
+      "title": "PolyView Insight"
+    },
+    "tools": [
+      {
+        "name": "profile_dataset",
+        "title": "Profile a claims dataset",
+        "description": "Profile a healthcare claims dataset provided as CSV, TSV, or JSON text. Returns row/column counts, per-column types, missing rates, distinct counts, ranges, top values, detected clinical coding systems (ICD-9/ICD-10, CPT, HCPCS, CDT), and the likely claim structure.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A label for the dataset, e.g. the file name."
+            },
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The dataset itself as CSV, TSV, or JSON text, including a header row for CSV/TSV."
+            }
+          },
+          "required": [
+            "name",
+            "content"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "detect_billing_anomalies",
+        "title": "Detect billing anomalies",
+        "description": "Run deterministic billing-anomaly checks over a healthcare claims dataset provided as CSV, TSV, or JSON text: duplicate patient/date/procedure billing, implausible claim volume per provider-day, many providers on one patient-day, amount outliers versus peers on the same procedure code, and sparse key columns. Each finding includes plain-language reasoning and possible innocent explanations.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A label for the dataset, e.g. the file name."
+            },
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The claims data as CSV, TSV, or JSON text, including a header row for CSV/TSV."
+            }
+          },
+          "required": [
+            "name",
+            "content"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "ask_analyst",
+        "title": "Ask the claims analyst",
+        "description": "Ask a natural-language question about a healthcare claims dataset and get a reasoned analyst answer. Provide the dataset as CSV, TSV, or JSON text along with your question. Handles trend questions, code-level breakdowns, anomaly reasoning, plain-English explanations, and summaries at whatever level of detail you ask for.",
+        "annotations": {
+          "readOnlyHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The question to answer about the data."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A label for the dataset, e.g. the file name."
+            },
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The dataset as CSV, TSV, or JSON text, including a header row for CSV/TSV."
+            }
+          },
+          "required": [
+            "question",
+            "name",
+            "content"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
