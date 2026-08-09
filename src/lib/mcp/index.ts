@@ -9,6 +9,6 @@ export default defineMcp({
   version: "0.1.0",
   instructions:
     "Healthcare claims analysis tools from PolyView Insight. Send a claims dataset inline as CSV, TSV, or JSON text. Use `profile_dataset` to understand a file's structure and clinical coding systems, `detect_billing_anomalies` for deterministic duplicate/volume/upcoding checks, and `ask_analyst` for a reasoned natural-language answer to any question about the data.",
-  tools: [profileDataset, detectBillingAnomalies, askAnalyst] as AnyToolDefinition[],
+  tools: [profileDataset, detectBillingAnomalies, askAnalyst] as unknown as ToolDefinition[],
 
 });
