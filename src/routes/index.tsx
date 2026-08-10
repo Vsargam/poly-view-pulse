@@ -211,14 +211,21 @@ function Index() {
 
   return (
     <main className="mx-auto flex h-screen w-full max-w-4xl flex-col px-4 pb-4">
-      <header className="flex items-center gap-3 border-b border-border py-4">
-        <img src={logo} alt="Poly View Health" width={36} height={36} className="h-9 w-9" />
+      <header className="mt-3 flex items-center gap-3 rounded-2xl glass-panel px-4 py-3">
+        <img
+          src={logo}
+          alt="Poly View Health"
+          width={36}
+          height={36}
+          className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
+        />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold tracking-tight">Poly View Health</h1>
+          <h1 className="truncate text-base font-semibold tracking-tight">Polyview Health</h1>
           <p className="truncate text-xs text-muted-foreground">
-            Conversational claims analyst — ask anything, in plain English
+            Preventing fraud, waste &amp; abuse — ask anything, in plain English
           </p>
         </div>
+
         <input
           ref={fileRef}
           type="file"
@@ -247,9 +254,10 @@ function Index() {
           {datasets.map((dataset) => (
             <span
               key={dataset.id}
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground"
+              className="inline-flex items-center gap-2 rounded-full glass-panel px-3 py-1 text-xs text-muted-foreground"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-chart-2" />
+              <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+
               <span className="max-w-[15rem] truncate font-medium text-foreground">
                 {dataset.name}
               </span>
