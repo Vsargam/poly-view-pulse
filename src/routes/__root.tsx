@@ -100,7 +100,32 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "icon", href: "/favicon.png", type: "image/png" },
     ],
-
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "Organization",
+              "@id": "https://poly-view-pulse.lovable.app/#organization",
+              name: "Poly View Health",
+              url: "https://poly-view-pulse.lovable.app",
+              description: "Conversational healthcare claims analyst",
+              logo: "https://poly-view-pulse.lovable.app/favicon.png",
+            },
+            {
+              "@type": "WebSite",
+              "@id": "https://poly-view-pulse.lovable.app/#website",
+              name: "Poly View Health",
+              url: "https://poly-view-pulse.lovable.app",
+              description: "Conversational healthcare claims analyst",
+              publisher: { "@id": "https://poly-view-pulse.lovable.app/#organization" },
+            },
+          ],
+        }),
+      },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
