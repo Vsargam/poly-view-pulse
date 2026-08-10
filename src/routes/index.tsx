@@ -245,7 +245,7 @@ function Index() {
           {parsing ? "Reading…" : "Upload data"}
         </Button>
         {messages.length > 0 ? (
-          <Button variant="ghost" size="icon-sm" title="Clear conversation" onClick={clearThread}>
+          <Button variant="ghost" size="icon-sm" title="Clear conversation" aria-label="Clear conversation" onClick={clearThread}>
             <RotateCcw className="h-4 w-4" />
           </Button>
         ) : null}

@@ -59,7 +59,7 @@ export const ConversationEmptyState = ({
       <>
         {icon && <div className="text-muted-foreground">{icon}</div>}
         <div className="space-y-1">
-          <h3 className="font-medium text-sm">{title}</h3>
+          <h2 className="font-medium text-sm">{title}</h2>
           {description && (
             <p className="text-muted-foreground text-sm">{description}</p>
           )}
@@ -89,6 +89,7 @@ export const ConversationScrollButton = ({
           className
         )}
         onClick={handleScrollToBottom}
+        aria-label="Scroll to bottom"
         size="icon"
         type="button"
         variant="outline"
@@ -157,6 +158,7 @@ export const ConversationDownload = ({
         className
       )}
       onClick={handleDownload}
+      aria-label="Download conversation"
       size="icon"
       type="button"
       variant="outline"
