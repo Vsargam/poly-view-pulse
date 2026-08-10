@@ -254,9 +254,10 @@ function Index() {
           {datasets.map((dataset) => (
             <span
               key={dataset.id}
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground"
+              className="inline-flex items-center gap-2 rounded-full glass-panel px-3 py-1 text-xs text-muted-foreground"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-chart-2" />
+              <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+
               <span className="max-w-[15rem] truncate font-medium text-foreground">
                 {dataset.name}
               </span>
