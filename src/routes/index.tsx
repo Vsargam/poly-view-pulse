@@ -220,7 +220,9 @@ function Index() {
           className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
         />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold tracking-tight">Polyview Health</h1>
+          <h1 className="truncate text-base font-semibold tracking-tight">
+            Poly View Health — Conversational Claims Analyst
+          </h1>
           <p className="truncate text-xs text-muted-foreground">
             Preventing fraud, waste &amp; abuse — ask anything, in plain English
           </p>
