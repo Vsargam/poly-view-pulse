@@ -220,7 +220,9 @@ function Index() {
           className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
         />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold tracking-tight">Polyview Health</h1>
+          <h1 className="truncate text-base font-semibold tracking-tight">
+            Poly View Health — Conversational Claims Analyst
+          </h1>
           <p className="truncate text-xs text-muted-foreground">
             Preventing fraud, waste &amp; abuse — ask anything, in plain English
           </p>
@@ -243,7 +245,7 @@ function Index() {
           {parsing ? "Reading…" : "Upload data"}
         </Button>
         {messages.length > 0 ? (
-          <Button variant="ghost" size="icon-sm" title="Clear conversation" onClick={clearThread}>
+          <Button variant="ghost" size="icon-sm" title="Clear conversation" aria-label="Clear conversation" onClick={clearThread}>
             <RotateCcw className="h-4 w-4" />
           </Button>
         ) : null}
