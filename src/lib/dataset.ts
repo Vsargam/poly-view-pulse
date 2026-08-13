@@ -104,10 +104,18 @@ function profileColumn(name: string, values: unknown[]): ColumnProfile {
   };
 
   if (inferredType === "number" && numbers.length) {
-    profile.min = Math.min(...numbers);
-    profile.max = Math.max(...numbers);
-    profile.mean =
-      Math.round((numbers.reduce((a, b) => a + b, 0) / numbers.length) * 1000) / 1000;
+    // Loop instead of Math.min(...numbers): spreading large arrays overflows the call stack.
+    let min = numbers[0] as number;
+    let max = numbers[0] as number;
+    let sum = 0;
+    for (const n of numbers) {
+      if (n < min) min = n;
+      if (n > max) max = n;
+      sum += n;
+    }
+    profile.min = min;
+    profile.max = max;
+    profile.mean = Math.round((sum / numbers.length) * 1000) / 1000;
   }
   if (inferredType === "date" && strings.length) {
     const sorted = [...strings].sort();
