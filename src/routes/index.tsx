@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import logo from "@/assets/polyview-logo.png";
 import { AssistantAnswer } from "@/components/AssistantAnswer";
+import { ThreadSidebar, type ThreadSummary } from "@/components/ThreadSidebar";
 import {
   Conversation,
   ConversationContent,
@@ -44,27 +45,42 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-const MESSAGES_KEY = "pvh.chat.messages.v1";
-const DATASETS_KEY = "pvh.chat.datasets.v1";
+const THREADS_KEY = "pvh.chat.threads.v1";
+const ACTIVE_KEY = "pvh.chat.active.v1";
+const MAX_THREADS = 40;
 
 type StoredDataset = Pick<Dataset, "id" | "name" | "uploadedAt" | "rowCount" | "fullRowsIncluded"> & {
   columnCount: number;
   context: string;
 };
 
-const readStored = <T,>(key: string, fallback: T): T => {
-  if (typeof window === "undefined") return fallback;
+type StoredThread = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: UIMessage[];
+  datasets: StoredDataset[];
+};
+
+const newId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const readThreads = (): StoredThread[] => {
+  if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    const raw = window.localStorage.getItem(THREADS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as StoredThread[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return fallback;
+    return [];
   }
 };
 
-const writeStored = (key: string, value: unknown) => {
+const writeThreads = (threads: StoredThread[]) => {
   try {
-    window.localStorage.setItem(key, JSON.stringify(value));
+    window.localStorage.setItem(THREADS_KEY, JSON.stringify(threads.slice(0, MAX_THREADS)));
   } catch {
     /* storage full — history stays in memory for this session */
   }
@@ -82,25 +98,27 @@ const reasoningText = (message: UIMessage) =>
     .join("")
     .trim();
 
+const titleFrom = (messages: UIMessage[]) => {
+  const first = messages.find((message) => message.role === "user");
+  const text = first ? messageText(first) : "";
+  if (!text) return "New chat";
+  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+};
+
 function Index() {
   const [hydrated, setHydrated] = useState(false);
+  const [threads, setThreads] = useState<StoredThread[]>([]);
+  const [activeId, setActiveId] = useState("pending");
   const [datasets, setDatasets] = useState<StoredDataset[]>([]);
-  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [parsing, setParsing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    setInitialMessages(readStored<UIMessage[]>(MESSAGES_KEY, []));
-    setDatasets(readStored<StoredDataset[]>(DATASETS_KEY, []));
-    setHydrated(true);
-  }, []);
-
   const transport = useMemo(() => new DefaultChatTransport({ api: "/api/chat" }), []);
 
   const { messages, setMessages, sendMessage, status, error } = useChat({
-    id: "poly-view-health",
+    id: activeId,
     transport,
     onError: (chatError) => {
       const message = chatError.message || "Something went wrong talking to the assistant.";
@@ -114,16 +132,49 @@ function Index() {
     },
   });
 
-  // Restore persisted thread once localStorage has been read.
+  // On load: keep history, but start a fresh chat unless this browser tab was
+  // already in the middle of one (survives reload, resets when the tab closes).
   useEffect(() => {
-    if (hydrated && initialMessages.length) setMessages(initialMessages);
-  }, [hydrated, initialMessages, setMessages]);
+    const stored = readThreads();
+    setThreads(stored);
 
-  // Persist thread on every change.
+    const sessionId = window.sessionStorage.getItem(ACTIVE_KEY);
+    const resumed = sessionId ? stored.find((thread) => thread.id === sessionId) : undefined;
+
+    if (resumed) {
+      setActiveId(resumed.id);
+      setDatasets(resumed.datasets ?? []);
+      setMessages(resumed.messages ?? []);
+    } else {
+      const id = newId();
+      window.sessionStorage.setItem(ACTIVE_KEY, id);
+      setActiveId(id);
+      setDatasets([]);
+      setMessages([]);
+    }
+    setHydrated(true);
+  }, [setMessages]);
+
+  // Persist the active thread whenever it changes.
   useEffect(() => {
-    if (!hydrated) return;
-    if (messages.length) writeStored(MESSAGES_KEY, messages);
-  }, [hydrated, messages]);
+    if (!hydrated || activeId === "pending") return;
+    if (!messages.length && !datasets.length) return;
+    setThreads((current) => {
+      const rest = current.filter((thread) => thread.id !== activeId);
+      const next: StoredThread[] = [
+        {
+          id: activeId,
+          title: titleFrom(messages),
+          updatedAt: Date.now(),
+          messages,
+          datasets,
+        },
+        ...rest,
+      ];
+      writeThreads(next);
+      return next;
+    });
+  }, [hydrated, activeId, messages, datasets]);
 
   const focusInput = useCallback(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -155,6 +206,42 @@ function Index() {
     [busy, datasetPayload, focusInput, sendMessage],
   );
 
+  const startNewChat = useCallback(() => {
+    const id = newId();
+    window.sessionStorage.setItem(ACTIVE_KEY, id);
+    setActiveId(id);
+    setDatasets([]);
+    setMessages([]);
+    setInput("");
+    focusInput();
+  }, [focusInput, setMessages]);
+
+  const selectThread = useCallback(
+    (id: string) => {
+      const thread = threads.find((item) => item.id === id);
+      if (!thread) return;
+      window.sessionStorage.setItem(ACTIVE_KEY, id);
+      setActiveId(id);
+      setDatasets(thread.datasets ?? []);
+      setMessages(thread.messages ?? []);
+      setInput("");
+      focusInput();
+    },
+    [focusInput, setMessages, threads],
+  );
+
+  const deleteThread = useCallback(
+    (id: string) => {
+      setThreads((current) => {
+        const next = current.filter((thread) => thread.id !== id);
+        writeThreads(next);
+        return next;
+      });
+      if (id === activeId) startNewChat();
+    },
+    [activeId, startNewChat],
+  );
+
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       const file = files?.[0];
@@ -175,7 +262,6 @@ function Index() {
         };
         const next = [...datasets, stored];
         setDatasets(next);
-        writeStored(DATASETS_KEY, next);
 
         void sendMessage(
           {
@@ -197,163 +283,201 @@ function Index() {
   );
 
   const removeDataset = (id: string) => {
-    const next = datasets.filter((dataset) => dataset.id !== id);
-    setDatasets(next);
-    writeStored(DATASETS_KEY, next);
+    setDatasets((current) => current.filter((dataset) => dataset.id !== id));
   };
 
   const clearThread = () => {
     setMessages([]);
-    writeStored(MESSAGES_KEY, []);
+    setThreads((current) => {
+      const next = current.filter((thread) => thread.id !== activeId);
+      writeThreads(next);
+      return next;
+    });
     toast.success("Conversation cleared.");
     focusInput();
   };
 
+  const summaries: ThreadSummary[] = useMemo(
+    () =>
+      threads.map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        updatedAt: thread.updatedAt,
+        messageCount: thread.messages.length,
+      })),
+    [threads],
+  );
+
   return (
-    <main className="mx-auto flex h-screen w-full max-w-4xl flex-col px-4 pb-4">
-      <header className="mt-3 flex items-center gap-3 rounded-2xl glass-panel px-4 py-3">
-        <img
-          src={logo}
-          alt="Poly View Health"
-          width={36}
-          height={36}
-          className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
-        />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold tracking-tight">
-            Poly View Health — Conversational Claims Analyst
-          </h1>
-          <p className="truncate text-xs text-muted-foreground">
-            Preventing fraud, waste &amp; abuse — ask anything, in plain English
-          </p>
-        </div>
+    <div className="mx-auto flex h-screen w-full max-w-6xl gap-4 px-4 pb-4">
+      <ThreadSidebar
+        threads={summaries}
+        activeId={activeId}
+        onSelect={selectThread}
+        onNew={startNewChat}
+        onDelete={deleteThread}
+      />
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,.tsv,.tab,.json,.xlsx,.xls"
-          className="hidden"
-          onChange={(event) => void handleFiles(event.target.files)}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fileRef.current?.click()}
-          disabled={parsing}
-        >
-          <Paperclip className="mr-2 h-4 w-4" />
-          {parsing ? "Reading…" : "Upload data"}
-        </Button>
-        {messages.length > 0 ? (
-          <Button variant="ghost" size="icon-sm" title="Clear conversation" aria-label="Clear conversation" onClick={clearThread}>
-            <RotateCcw className="h-4 w-4" />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="mt-3 flex items-center gap-3 rounded-2xl glass-panel px-4 py-3">
+          <img
+            src={logo}
+            alt="Poly View Health"
+            width={36}
+            height={36}
+            className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
+          />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-semibold tracking-tight">
+              Poly View Health — Conversational Claims Analyst
+            </h1>
+            <p className="truncate text-xs text-muted-foreground">
+              Preventing fraud, waste &amp; abuse — ask anything, in plain English
+            </p>
+          </div>
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.tsv,.tab,.json,.xlsx,.xls"
+            className="hidden"
+            onChange={(event) => void handleFiles(event.target.files)}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileRef.current?.click()}
+            disabled={parsing}
+          >
+            <Paperclip className="mr-2 h-4 w-4" />
+            {parsing ? "Reading…" : "Upload data"}
           </Button>
-        ) : null}
-      </header>
-
-      {datasets.length > 0 ? (
-        <div className="flex flex-wrap gap-2 py-3">
-          {datasets.map((dataset) => (
-            <span
-              key={dataset.id}
-              className="inline-flex items-center gap-2 rounded-full glass-panel px-3 py-1 text-xs text-muted-foreground"
+          {messages.length > 0 ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Clear conversation"
+              aria-label="Clear conversation"
+              onClick={clearThread}
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
-
-              <span className="max-w-[15rem] truncate font-medium text-foreground">
-                {dataset.name}
-              </span>
-              <span>
-                {dataset.rowCount.toLocaleString()} rows · {dataset.columnCount} cols
-              </span>
-              <button
-                type="button"
-                onClick={() => removeDataset(dataset.id)}
-                aria-label={`Remove ${dataset.name}`}
-                className="rounded-full p-0.5 transition-colors hover:bg-secondary"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      <Conversation className="min-h-0 flex-1">
-        <ConversationContent className="gap-6 px-0">
-          {messages.length === 0 ? (
-            <ConversationEmptyState
-              icon={
-                <img src={logo} alt="" width={56} height={56} className="h-14 w-14" loading="lazy" />
-              }
-              title="Ask about your claims data"
-              description="Upload a CSV, Excel, JSON or TSV file, then ask anything — a number, a chart, a cleanup, an anomaly check, or just help thinking about what to look at."
-            />
+              <RotateCcw className="h-4 w-4" />
+            </Button>
           ) : null}
+        </header>
 
-          {messages.map((message) => {
-            const text = messageText(message);
-            const reasoning = reasoningText(message);
-            return (
-              <Message key={message.id} from={message.role}>
+        {datasets.length > 0 ? (
+          <div className="flex flex-wrap gap-2 py-3">
+            {datasets.map((dataset) => (
+              <span
+                key={dataset.id}
+                className="inline-flex items-center gap-2 rounded-full glass-panel px-3 py-1 text-xs text-muted-foreground"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+
+                <span className="max-w-[15rem] truncate font-medium text-foreground">
+                  {dataset.name}
+                </span>
+                <span>
+                  {dataset.rowCount.toLocaleString()} rows · {dataset.columnCount} cols
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeDataset(dataset.id)}
+                  aria-label={`Remove ${dataset.name}`}
+                  className="rounded-full p-0.5 transition-colors hover:bg-secondary"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <Conversation className="min-h-0 flex-1">
+          <ConversationContent className="gap-6 px-0">
+            {messages.length === 0 ? (
+              <ConversationEmptyState
+                icon={
+                  <img
+                    src={logo}
+                    alt=""
+                    width={56}
+                    height={56}
+                    className="h-14 w-14"
+                    loading="lazy"
+                  />
+                }
+                title="Ask about your claims data"
+                description="Upload a CSV, Excel, JSON or TSV file, then ask anything — a number, a chart, a cleanup, an anomaly check, or just help thinking about what to look at."
+              />
+            ) : null}
+
+            {messages.map((message) => {
+              const text = messageText(message);
+              const reasoning = reasoningText(message);
+              return (
+                <Message key={message.id} from={message.role}>
+                  <MessageContent>
+                    {message.role === "assistant" ? (
+                      <>
+                        {reasoning && !text ? (
+                          <p className="text-xs italic text-muted-foreground">
+                            {reasoning.slice(-400)}
+                          </p>
+                        ) : null}
+                        {text ? <AssistantAnswer text={text} /> : null}
+                      </>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{text}</p>
+                    )}
+                  </MessageContent>
+                </Message>
+              );
+            })}
+
+            {status === "submitted" ? (
+              <Message from="assistant">
                 <MessageContent>
-                  {message.role === "assistant" ? (
-                    <>
-                      {reasoning && !text ? (
-                        <p className="text-xs italic text-muted-foreground">{reasoning.slice(-400)}</p>
-                      ) : null}
-                      {text ? <AssistantAnswer text={text} /> : null}
-                    </>
-                  ) : (
-                    <p className="whitespace-pre-wrap">{text}</p>
-                  )}
+                  <Shimmer>Thinking…</Shimmer>
                 </MessageContent>
               </Message>
-            );
-          })}
+            ) : null}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
 
-          {status === "submitted" ? (
-            <Message from="assistant">
-              <MessageContent>
-                <Shimmer>Thinking…</Shimmer>
-              </MessageContent>
-            </Message>
-          ) : null}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
+        {error ? (
+          <p className="pb-2 text-xs text-destructive">
+            {error.message || "The last request failed. Try again."}
+          </p>
+        ) : null}
 
-      {error ? (
-        <p className="pb-2 text-xs text-destructive">
-          {error.message || "The last request failed. Try again."}
-        </p>
-      ) : null}
-
-      <PromptInput
-        onSubmit={(_message, event) => {
-          event.preventDefault();
-          submit(input);
-        }}
-      >
-        <PromptInputTextarea
-          ref={textareaRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={
-            datasets.length
-              ? "Ask anything — “which providers bill far above their peers for the same CPT code?”"
-              : "Ask anything, or upload a file to analyze"
-          }
-        />
-        <PromptInputFooter className="justify-between">
-          <span className="text-[11px] text-muted-foreground">
-            {datasets.length
-              ? `Grounded in ${datasets.length} uploaded file${datasets.length > 1 ? "s" : ""}`
-              : "No file uploaded yet"}
-          </span>
-          <PromptInputSubmit status={status} disabled={!input.trim() && !busy} />
-        </PromptInputFooter>
-      </PromptInput>
-    </main>
+        <PromptInput
+          onSubmit={(_message, event) => {
+            event.preventDefault();
+            submit(input);
+          }}
+        >
+          <PromptInputTextarea
+            ref={textareaRef}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={
+              datasets.length
+                ? "Ask anything — “which providers bill far above their peers for the same CPT code?”"
+                : "Ask anything, or upload a file to analyze"
+            }
+          />
+          <PromptInputFooter className="justify-between">
+            <span className="text-[11px] text-muted-foreground">
+              {datasets.length
+                ? `Grounded in ${datasets.length} uploaded file${datasets.length > 1 ? "s" : ""}`
+                : "No file uploaded yet"}
+            </span>
+            <PromptInputSubmit status={status} disabled={!input.trim() && !busy} />
+          </PromptInputFooter>
+        </PromptInput>
+      </main>
+    </div>
   );
 }
