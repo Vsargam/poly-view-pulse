@@ -1,12 +1,16 @@
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChartBlock, type ChartSpec } from "@/components/ChartBlock";
+import { MapBlock, type MapSpec } from "@/components/MapBlock";
 
-type Segment = { kind: "text"; value: string } | { kind: "chart"; spec: ChartSpec };
+type Segment =
+  | { kind: "text"; value: string }
+  | { kind: "chart"; spec: ChartSpec }
+  | { kind: "map"; spec: MapSpec };
 
-/** Splits assistant markdown into prose segments and inline ```chart JSON blocks. */
+/** Splits assistant markdown into prose and inline ```chart / ```map JSON blocks. */
 function splitSegments(text: string): Segment[] {
   const segments: Segment[] = [];
-  const pattern = /```chart\s*([\s\S]*?)```/g;
+  const pattern = /```(chart|map)\s*([\s\S]*?)```/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -14,7 +18,10 @@ function splitSegments(text: string): Segment[] {
     const before = text.slice(lastIndex, match.index);
     if (before.trim()) segments.push({ kind: "text", value: before });
     try {
-      segments.push({ kind: "chart", spec: JSON.parse((match[1] ?? "").trim()) as ChartSpec });
+      const spec = JSON.parse((match[2] ?? "").trim()) as ChartSpec & MapSpec;
+      segments.push(
+        match[1] === "map" ? { kind: "map", spec } : { kind: "chart", spec: spec as ChartSpec },
+      );
     } catch {
       segments.push({ kind: "text", value: match[0] });
     }
@@ -32,6 +39,8 @@ export function AssistantAnswer({ text }: { text: string }) {
       {splitSegments(text).map((segment, index) =>
         segment.kind === "chart" ? (
           <ChartBlock key={index} spec={segment.spec} />
+        ) : segment.kind === "map" ? (
+          <MapBlock key={index} spec={segment.spec} />
         ) : (
           <MessageResponse key={index}>{segment.value}</MessageResponse>
         ),

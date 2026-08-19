@@ -32,7 +32,14 @@ FORMAT
 {"type":"bar","title":"Claims by state","xKey":"label","yKey":"value","data":[{"label":"CA","value":184},{"label":"TX","value":97}]}
 \`\`\`
   Supported types: "bar", "line", "area", "pie". Use real values you computed from the data only. Keep charts under ~30 data points.
-- Never tell the user to install, download, or run anything locally. Everything happens here in this conversation.`;
+- When geography is the clearest answer (a state, county, or country breakdown), embed a fenced block tagged \`map\`:
+\`\`\`map
+{"type":"map","title":"Claims by state","geography":"us-states","regionKey":"state","measure":"claims","rows":[{"state":"CA","claims":184},{"state":"TX","claims":97}]}
+\`\`\`
+  \`geography\` is "us-states", "us-counties" or "world". \`regionKey\` names the row field holding the state name/USPS code/FIPS, the 5-digit county FIPS, or the country name; \`measure\` names the numeric field. For coordinate data use \`"points":[{"lat":37.7,"lng":-122.4,"label":"SF","value":12}]\` instead of rows. Optionally set \`"focus":"Kenya"\` to zoom one country. Always keep a one-line takeaway in the prose next to the map.
+- Never tell the user to install, download, or run anything locally. Everything happens here in this conversation.
+- When a file was just uploaded, acknowledge it in at most two sentences (what it looks like and one thing worth asking) — the UI already shows a metadata card, so do not restate row/column counts at length.`;
+
 
 export const Route = createFileRoute("/api/chat")({
   server: {
