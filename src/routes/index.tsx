@@ -24,6 +24,9 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
+import { DataFilesContext } from "@/lib/ops/files-context";
+import { runOpTool, type FileStore } from "@/lib/ops/execute";
+import { toCsv, type Table } from "@/lib/ops/engine";
 import {
   buildDataset,
   claimTypeGuess,
@@ -154,9 +157,68 @@ function Index() {
 
   const transport = useMemo(() => new DefaultChatTransport({ api: "/api/chat" }), []);
 
-  const { messages, setMessages, sendMessage, status, error, stop } = useChat({
+  /** Names of files the tools generated, so the model and charts can use them. */
+  const datasetsRef = useRef<StoredDataset[]>([]);
+  useEffect(() => {
+    datasetsRef.current = datasets;
+  }, [datasets]);
+
+  const norm = (value: string) => value.trim().toLowerCase().replace(/\.(csv|tsv|json|xlsx|xls)$/i, "");
+
+  const fileStore = useMemo<FileStore>(
+    () => ({
+      find: (name) => {
+        const wanted = norm(name ?? "");
+        const list = datasetsRef.current.filter((dataset) => rowsRef.current.has(dataset.id));
+        const hit =
+          list.find((dataset) => norm(dataset.name) === wanted) ??
+          list.find((dataset) => norm(dataset.name).includes(wanted) && wanted.length > 2) ??
+          list.find((dataset) => wanted.includes(norm(dataset.name)));
+        if (!hit) return null;
+        return { id: hit.id, name: hit.name, rows: rowsRef.current.get(hit.id) ?? [] };
+      },
+      list: () =>
+        datasetsRef.current
+          .filter((dataset) => rowsRef.current.has(dataset.id))
+          .map((dataset) => ({ name: dataset.name, rows: dataset.rowCount })),
+      add: (name, table: Table, note, sourceName) => {
+        const taken = new Set(datasetsRef.current.map((dataset) => dataset.name));
+        let finalName = name;
+        let counter = 2;
+        while (taken.has(finalName)) {
+          finalName = name.replace(/(\.[a-z]+)?$/i, (ext) => `_${counter}${ext || ""}`);
+          counter += 1;
+        }
+        const rows = table.rows;
+        const dataset = buildDataset(finalName, rows, rows.length);
+        rowsRef.current.set(dataset.id, rows);
+        const stored = { ...toStored(dataset, note), generated: true };
+        datasetsRef.current = [...datasetsRef.current, stored];
+        setDatasets(datasetsRef.current);
+        void sourceName;
+        return finalName;
+      },
+    }),
+    [],
+  );
+
+  const { messages, setMessages, sendMessage, status, error, stop, addToolResult } = useChat({
     id: activeId,
     transport,
+    onToolCall: async ({ toolCall }) => {
+      try {
+        const output = await runOpTool(toolCall.toolName, toolCall.input, fileStore);
+        await addToolResult({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId, output });
+      } catch (toolError) {
+        await addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: {
+            error: toolError instanceof Error ? toolError.message : "The analysis step failed.",
+          },
+        });
+      }
+    },
     onError: (chatError) => {
       const message = chatError.message || "Something went wrong talking to the assistant.";
       toast.error(
@@ -322,6 +384,27 @@ function Index() {
     [datasets, focusInput, sendMessage],
   );
 
+  const downloadDataset = useCallback(
+    (id: string) => {
+      const dataset = datasets.find((item) => item.id === id);
+      const rows = rowsRef.current.get(id);
+      if (!dataset || !rows?.length) {
+        toast.error("That file's rows are no longer in this session.");
+        return;
+      }
+      const name = /\.(csv|tsv|json|xlsx|xls)$/i.test(dataset.name)
+        ? dataset.name.replace(/\.(tsv|json|xlsx|xls)$/i, ".csv")
+        : `${dataset.name}.csv`;
+      const url = URL.createObjectURL(new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    [datasets],
+  );
+
   const removeDataset = (id: string) => {
     rowsRef.current.delete(id);
     setDatasets((current) => current.filter((dataset) => dataset.id !== id));
@@ -424,7 +507,16 @@ function Index() {
   const splitColumns =
     datasets.find((dataset) => dataset.id === splitTarget)?.columnNames.slice(0, 60) ?? [];
 
+  const filesContext = useMemo(
+    () => ({
+      getRows: (name: string) => fileStore.find(name)?.rows ?? null,
+      names: datasets.map((dataset) => dataset.name),
+    }),
+    [datasets, fileStore],
+  );
+
   return (
+    <DataFilesContext.Provider value={filesContext}>
     <div
       className="mx-auto flex h-screen w-full max-w-6xl gap-4 px-4 pb-4"
       onDragOver={(event) => {
@@ -499,7 +591,12 @@ function Index() {
           <div className="flex flex-col gap-2 py-3">
             <div className="flex flex-wrap gap-2">
               {cards.map((card) => (
-                <DatasetCard key={card.id} info={card} onRemove={removeDataset} />
+                <DatasetCard
+                  key={card.id}
+                  info={card}
+                  onRemove={removeDataset}
+                  onDownload={downloadDataset}
+                />
               ))}
             </div>
 
@@ -665,5 +762,6 @@ function Index() {
         </PromptInput>
       </main>
     </div>
+    </DataFilesContext.Provider>
   );
 }
