@@ -75,7 +75,7 @@ function featureKey(level: MapLevel, geo: { id?: unknown; properties?: Record<st
 }
 
 export function MapBlock({ spec }: { spec: MapSpec }) {
-  const rows = useMemo(() => (Array.isArray(spec.rows) ? spec.rows : []), [spec.rows]);
+  const rows: Record<string, unknown>[] = useBlockRows(spec.rows, spec, spec.measure, 4000);
   const points = useMemo(() => (Array.isArray(spec.points) ? spec.points : []), [spec.points]);
 
   const measures = useMemo(() => {
