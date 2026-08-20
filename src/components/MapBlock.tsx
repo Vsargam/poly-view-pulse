@@ -118,9 +118,14 @@ export function MapBlock({ spec }: { spec: MapSpec }) {
   }, [level, measure, regionKey, rows]);
 
   const domain = useMemo(() => {
-    const list = [...values.values()].map((v) => v.value);
-    if (!list.length) return [0, 1] as [number, number];
-    return [Math.min(...list), Math.max(...list)] as [number, number];
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const entry of values.values()) {
+      if (entry.value < min) min = entry.value;
+      if (entry.value > max) max = entry.value;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1] as [number, number];
+    return [min, max] as [number, number];
   }, [values]);
 
   const colorFor = useMemo(() => {
