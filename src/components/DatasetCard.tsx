@@ -1,4 +1,4 @@
-import { FileSpreadsheet, Loader2, TriangleAlert, X } from "lucide-react";
+import { Download, FileSpreadsheet, Loader2, TriangleAlert, X } from "lucide-react";
 
 export type DatasetCardInfo = {
   id: string;
@@ -8,6 +8,7 @@ export type DatasetCardInfo = {
   claimType?: string;
   hints?: string[];
   derivedFrom?: string;
+  generated?: boolean;
   status: "parsing" | "ready" | "failed";
   error?: string;
 };
@@ -16,9 +17,11 @@ export type DatasetCardInfo = {
 export function DatasetCard({
   info,
   onRemove,
+  onDownload,
 }: {
   info: DatasetCardInfo;
   onRemove?: (id: string) => void;
+  onDownload?: (id: string) => void;
 }) {
   return (
     <div className="glass-panel flex min-w-[15rem] max-w-full flex-1 items-start gap-3 rounded-xl px-3 py-2.5">
@@ -55,6 +58,18 @@ export function DatasetCard({
           </>
         )}
       </div>
+
+      {onDownload && info.status === "ready" ? (
+        <button
+          type="button"
+          onClick={() => onDownload(info.id)}
+          aria-label={`Download ${info.name} as CSV`}
+          title="Download as CSV"
+          className="rounded-full p-1 text-accent transition-colors hover:bg-secondary"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
 
       {onRemove && info.status !== "parsing" ? (
         <button
