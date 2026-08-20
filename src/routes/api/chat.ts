@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { convertToModelMessages, streamText, type UIMessage } from "ai";
+import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
+
+import { opTools } from "@/lib/ops/tools";
 
 type DatasetPayload = { name: string; context: string };
 type ChatRequestBody = { messages?: unknown; datasets?: unknown };
+
+
 
 
 const SYSTEM_PROMPT = `You are the Poly View Health data assistant: a senior healthcare data analyst and general-purpose AI collaborator working alongside claims analysts.
