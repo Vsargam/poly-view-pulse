@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 export type MapLevel = "us-states" | "us-counties" | "world";
 
-export type MapSpec = {
+export type MapSpec = DataQuery & {
   type?: "map";
   title?: string;
   geography?: MapLevel;
