@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
+import { convertToModelMessages, stepCountIs, streamText, type ToolSet, type UIMessage } from "ai";
 
 import { opTools } from "@/lib/ops/tools";
 
@@ -99,7 +99,7 @@ export const Route = createFileRoute("/api/chat")({
             model: anthropic("claude-sonnet-4-5-20250929"),
             system: `${SYSTEM_PROMPT}\n\n# FILES CURRENTLY LOADED (profiles + a sample of rows; the tools see every row)\n${datasetBlock}`,
             messages: await convertToModelMessages(messages as UIMessage[]),
-            tools: opTools,
+            tools: opTools as unknown as ToolSet,
             stopWhen: stepCountIs(12),
           });
 
