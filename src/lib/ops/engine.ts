@@ -289,8 +289,8 @@ export function aggregate(table: Table, options: AggregateOptions): Table {
       if (value === null) continue;
       bucket.counts[m] = (bucket.counts[m] ?? 0) + 1;
       bucket.sums[m] = (bucket.sums[m] ?? 0) + value;
-      const currentMin = bucket.mins[m];
-      const currentMax = bucket.maxes[m];
+      const currentMin = bucket.mins[m] ?? null;
+      const currentMax = bucket.maxes[m] ?? null;
       if (currentMin === null || value < currentMin) bucket.mins[m] = value;
       if (currentMax === null || value > currentMax) bucket.maxes[m] = value;
     }
