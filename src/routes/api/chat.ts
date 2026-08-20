@@ -97,8 +97,10 @@ export const Route = createFileRoute("/api/chat")({
         try {
           const result = streamText({
             model: anthropic("claude-sonnet-4-5-20250929"),
-            system: `${SYSTEM_PROMPT}\n\n# DATA CURRENTLY AVAILABLE TO YOU\n${datasetBlock}`,
+            system: `${SYSTEM_PROMPT}\n\n# FILES CURRENTLY LOADED (profiles + a sample of rows; the tools see every row)\n${datasetBlock}`,
             messages: await convertToModelMessages(messages as UIMessage[]),
+            tools: opTools,
+            stopWhen: stepCountIs(12),
           });
 
           return result.toUIMessageStreamResponse({
