@@ -1,6 +1,10 @@
 import { useChat } from "@ai-sdk/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithToolCalls,
+  type UIMessage,
+} from "ai";
 import { Merge, Paperclip, RotateCcw, Scissors, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -155,7 +159,20 @@ function Index() {
   /** Row data for this session only, so files can be merged and split client-side. */
   const rowsRef = useRef<Map<string, Row[]>>(new Map());
 
-  const transport = useMemo(() => new DefaultChatTransport({ api: "/api/chat" }), []);
+  const payloadRef = useRef<{ name: string; context: string }[]>([]);
+
+  /** Always send the current file profiles, including tool-generated files, on
+   * every request — including the automatic follow-up after a tool result. */
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        prepareSendMessagesRequest: ({ messages: outgoing, body }) => ({
+          body: { ...body, messages: outgoing, datasets: payloadRef.current },
+        }),
+      }),
+    [],
+  );
 
   /** Names of files the tools generated, so the model and charts can use them. */
   const datasetsRef = useRef<StoredDataset[]>([]);
@@ -205,6 +222,7 @@ function Index() {
   const { messages, setMessages, sendMessage, status, error, stop, addToolResult } = useChat({
     id: activeId,
     transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall: async ({ toolCall }) => {
       try {
         const output = await runOpTool(toolCall.toolName, toolCall.input, fileStore);
@@ -284,6 +302,10 @@ function Index() {
     () => datasets.map((dataset) => ({ name: dataset.name, context: dataset.context })),
     [datasets],
   );
+
+  useEffect(() => {
+    payloadRef.current = datasetPayload;
+  }, [datasetPayload]);
 
   const busy = status === "submitted" || status === "streaming";
 
