@@ -10,6 +10,7 @@ import {
 } from "react-simple-maps";
 
 import { countryKey, toCountyFips, toStateFips } from "@/lib/geo";
+import { useBlockRows, type DataQuery } from "@/lib/ops/files-context";
 import { cn } from "@/lib/utils";
 
 export type MapLevel = "us-states" | "us-counties" | "world";
