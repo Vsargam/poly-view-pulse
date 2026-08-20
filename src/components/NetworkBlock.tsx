@@ -102,7 +102,7 @@ export function NetworkBlock({ spec }: { spec: NetworkSpec }) {
         .force(
           "link",
           forceLink(linkList as never[])
-            .id((node: never) => (node as SimNode).id)
+            .id((node) => (node as SimNode).id)
             .distance(140)
             .strength(0.35),
         )
