@@ -34,6 +34,9 @@ export const asTable = (rows: Row[]): Table => ({ columns: columnOrder(rows), ro
 const isBlank = (value: unknown) =>
   value === null || value === undefined || `${value}`.trim() === "";
 
+export const isBlankValue = isBlank;
+
+
 export function toNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (isBlank(value)) return null;
