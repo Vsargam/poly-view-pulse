@@ -13,4 +13,4 @@ Allow: /
 User-agent: *
 Allow: /
 
-Sitemap: https://poly-view-pulse.lovable.app/sitemap.xml
+Sitemap: https://poly-view-health.lovable.app/sitemap.xml

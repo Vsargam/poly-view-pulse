@@ -610,7 +610,10 @@ function Index() {
         ) : null}
 
         {cards.length > 0 ? (
-          <div className="flex flex-col gap-2 py-3">
+          <section aria-labelledby="datasets-heading" className="flex flex-col gap-2 py-3">
+            <h2 id="datasets-heading" className="sr-only">
+              Uploaded and generated data files
+            </h2>
             <div className="flex flex-wrap gap-2">
               {cards.map((card) => (
                 <DatasetCard
@@ -678,10 +681,13 @@ function Index() {
               </Button>
               <span className="text-[11px]">Originals are kept — merges and splits add new files.</span>
             </div>
-          </div>
+          </section>
         ) : null}
 
-        <Conversation className="min-h-0 flex-1">
+        <h2 id="conversation-heading" className="sr-only">
+          Conversation with the data assistant
+        </h2>
+        <Conversation aria-labelledby="conversation-heading" className="min-h-0 flex-1">
           <ConversationContent className="gap-6 px-0">
             {messages.length === 0 ? (
               <ConversationEmptyState
@@ -750,6 +756,7 @@ function Index() {
           }}
         >
           <PromptInputTextarea
+            aria-label="Ask the Poly View Health data assistant a question"
             ref={textareaRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
