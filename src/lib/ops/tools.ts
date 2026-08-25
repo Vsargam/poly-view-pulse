@@ -36,10 +36,26 @@ const derivedColumn = z.object({
 });
 
 const metric = z.object({
-  op: z.enum(["count", "sum", "avg", "min", "max", "distinct_count"]),
+  op: z.enum([
+    "count",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "distinct_count",
+    "count_per_distinct",
+    "distinct_per_distinct",
+  ]),
   column: z.string().optional().describe("Column to aggregate (not needed for count)."),
+  per_column: z
+    .string()
+    .optional()
+    .describe(
+      "Denominator column for ratio ops: count_per_distinct = rows / distinct values of per_column (e.g. average claims per ClaimEndDt); distinct_per_distinct = distinct values of column / distinct values of per_column (e.g. average distinct patients per ClaimEndDt).",
+    ),
   as: z.string().optional().describe('Output column name, e.g. "# occurrences".'),
 });
+
 
 export const opTools = {
   add_columns: tool({
