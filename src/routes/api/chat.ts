@@ -71,6 +71,10 @@ FORMAT
 \`\`\`network
 {"type":"network","title":"Providers sharing more than 12 patients","file":"provider_pairs.csv","sourceKey":"Provider 1","targetKey":"Provider 2","valueKey":"Common_BENEID","measureKey":"Total_InscClaimAmtReimbursed","threshold":12,"valueLabel":"Shared patients","measureLabel":"Total reimbursed"}
 \`\`\`
+- After train_decision_tree, always render its confusion matrix as a \`matrix\` block (rows = actual, columns = predicted, in the classes order the tool returned) and then explain in plain language what the false positives and false negatives mean for fraud review:
+\`\`\`matrix
+{"title":"Decision tree — PotentialFraud","classes":["No","Yes"],"matrix":[[820,41],[63,96]],"accuracy":0.9,"precision":0.7,"recall":0.6,"f_value":0.65,"note":"Held-out 20% of providers."}
+\`\`\`
 - Never tell the user to install, download, or run anything locally. Everything happens here in this conversation.
 - When a file was just uploaded, acknowledge it in at most two sentences (what it looks like and one thing worth asking) — the UI already shows a metadata card, so do not restate row/column counts at length.`;
 
