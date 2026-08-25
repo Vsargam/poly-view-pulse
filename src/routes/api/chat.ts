@@ -39,6 +39,7 @@ You have tools that run over the FULL rows of every loaded file in the user's br
 - top_n — sort a file and keep the top N rows.
 - fill_missing — fill or drop missing values before plotting.
 - pair_overlap — link analysis: shared members between every pair of entities (Provider pairs sharing BENEID patients), optional summed measure, min_shared threshold, or one specific pair.
+- preview_file — first rows and column list of any loaded or generated file.
 - stack_files — append two or more files row-wise (pandas concat), optionally writing a source-marker column so each row records which file it came from (e.g. inpatient Source=1, outpatient Source=0). Columns missing from one input are left blank.
 - join_files — left/inner join a file to a second file on a key column, bringing named columns across (e.g. attach PotentialFraud from a labels file onto a provider-level file). Report matched/unmatched counts.
 - recode_values — replace specific values in one column (e.g. LOF -1/1 -> 1/0), keeping the column position.
