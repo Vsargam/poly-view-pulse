@@ -224,10 +224,23 @@ export function deriveColumns(table: Table, specs: DerivedColumn[]): Table & { n
 /* -------------------------------------------------------------- aggregate */
 
 export type Metric = {
-  op: "count" | "sum" | "avg" | "min" | "max" | "distinct_count";
+  op:
+    | "count"
+    | "sum"
+    | "avg"
+    | "min"
+    | "max"
+    | "distinct_count"
+    /** rows in the group / number of distinct values of `per_column` */
+    | "count_per_distinct"
+    /** distinct values of `column` / distinct values of `per_column` */
+    | "distinct_per_distinct";
   column?: string;
+  /** Denominator column for the ratio ops. */
+  per_column?: string;
   as?: string;
 };
+
 
 export type AggregateOptions = {
   group_by: string[];
