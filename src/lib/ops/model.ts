@@ -136,9 +136,13 @@ const gini = (counts: number[], total: number) => {
 
 const classCounts = (y: number[], indices: number[], classCount: number) => {
   const counts = new Array(classCount).fill(0) as number[];
-  for (const index of indices) counts[y[index] as number] += 1;
+  for (const index of indices) {
+    const cls = y[index] as number;
+    counts[cls] = (counts[cls] ?? 0) + 1;
+  }
   return counts;
 };
+
 
 const majority = (counts: number[]) => {
   let best = 0;
