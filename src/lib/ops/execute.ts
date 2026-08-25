@@ -1,3 +1,4 @@
+import { joinTables, stackTables } from "./combine";
 import {
   aggregate,
   asTable,
@@ -7,11 +8,15 @@ import {
   filterRows,
   lookupReplace,
   pairOverlap,
+  recodeValues,
   reorder,
   sortRows,
   type Row,
   type Table,
 } from "./engine";
+import { localOutlierFactor } from "./lof";
+import { getModel, predictWith, trainDecisionTree } from "./model";
+
 
 export type FileHandle = { id: string; name: string; rows: Row[] };
 
@@ -212,6 +217,178 @@ export async function runOpTool(
       ...preview(result.table, 20),
     };
   }
+  if (toolName === "stack_files") {
+    const inputs = ((input["inputs"] as unknown as { file: string; marker?: string | number }[]) ?? []).map(
+      (entry) => {
+        const handle = requireFile(store, entry.file);
+        return {
+          name: handle.name,
+          table: asTable(handle.rows),
+          ...(entry.marker === undefined ? {} : { marker: entry.marker }),
+        };
+      },
+    );
+    if (inputs.length < 2) throw new Error("stack_files needs at least two loaded files.");
+    const sourceColumn = input["source_column"] as unknown as string | undefined;
+    const result = stackTables(inputs, sourceColumn ? { source_column: sourceColumn } : {});
+    const name =
+      (input["output_file"] as unknown as string) || defaultName(inputs[0]!.name, "merged");
+    const finalName = store.add(
+      name,
+      { columns: result.columns, rows: result.rows },
+      `Stacked ${inputs.map((entry) => entry.name).join(" + ")}`,
+      inputs[0]!.name,
+    );
+    return {
+      created_file: finalName,
+      rowCount: result.rows.length,
+      perFile: result.perFile,
+      ...preview({ columns: result.columns, rows: result.rows }, 8),
+    };
+  }
+
+  if (toolName === "join_files") {
+    const handle = requireFile(store, fileName);
+    const right = requireFile(store, input["right_file"] as unknown as string);
+    const result = joinTables(asTable(handle.rows), asTable(right.rows), {
+      key: input["key"] as unknown as string,
+      ...(input["right_key"] ? { right_key: input["right_key"] as unknown as string } : {}),
+      ...(input["columns"] ? { columns: input["columns"] as unknown as string[] } : {}),
+      ...(input["how"] ? { how: input["how"] as unknown as "left" | "inner" } : {}),
+    });
+    const name = (input["output_file"] as unknown as string) || defaultName(handle.name, "joined");
+    const finalName = store.add(
+      name,
+      { columns: result.columns, rows: result.rows },
+      `Joined ${handle.name} to ${right.name}`,
+      handle.name,
+    );
+    return {
+      created_file: finalName,
+      rowCount: result.rows.length,
+      matchedRows: result.matched,
+      unmatchedRows: result.unmatched,
+      ...preview({ columns: result.columns, rows: result.rows }, 8),
+    };
+  }
+
+  if (toolName === "recode_values") {
+    const handle = requireFile(store, fileName);
+    const result = recodeValues(asTable(handle.rows), {
+      column: input["column"] as unknown as string,
+      mapping: (input["mapping"] as unknown as { from: string | number; to: string | number }[]) ?? [],
+      ...(input["unmatched"] ? { unmatched: input["unmatched"] as unknown as "keep" | "blank" } : {}),
+    });
+    const name = (input["output_file"] as unknown as string) || defaultName(handle.name, "recoded");
+    const finalName = store.add(
+      name,
+      { columns: result.columns, rows: result.rows },
+      `Recoded ${input["column"]} in ${handle.name}`,
+      handle.name,
+    );
+    return {
+      created_file: finalName,
+      valuesChanged: result.changed,
+      ...preview({ columns: result.columns, rows: result.rows }, 5),
+    };
+  }
+
+  if (toolName === "train_decision_tree") {
+    const handle = requireFile(store, fileName);
+    const { model, evaluation, treeText } = trainDecisionTree(asTable(handle.rows), {
+      file: handle.name,
+      target: input["target"] as unknown as string,
+      ...(input["ignore_columns"] ? { ignore_columns: input["ignore_columns"] as unknown as string[] } : {}),
+      ...(input["max_depth"] ? { max_depth: Number(input["max_depth"]) } : {}),
+      ...(input["min_samples_leaf"] ? { min_samples_leaf: Number(input["min_samples_leaf"]) } : {}),
+      ...(input["test_size"] !== undefined ? { test_size: Number(input["test_size"]) } : {}),
+      ...(input["positive_class"] ? { positive_class: input["positive_class"] as unknown as string } : {}),
+    });
+    return {
+      model_id: model.id,
+      trained_on: handle.name,
+      target: model.target,
+      classes: model.classes,
+      features_used: model.features.map((feature) => feature.name),
+      max_depth: model.maxDepth,
+      confusion_matrix: {
+        classes: evaluation.classes,
+        rows_are_actual: true,
+        matrix: evaluation.matrix,
+        positive_class: evaluation.positiveClass,
+        true_negative: evaluation.trueNegative,
+        false_positive: evaluation.falsePositive,
+        false_negative: evaluation.falseNegative,
+        true_positive: evaluation.truePositive,
+      },
+      accuracy: evaluation.accuracy,
+      precision: evaluation.precision,
+      recall: evaluation.recall,
+      f_value: evaluation.fValue,
+      evaluated_rows: evaluation.evaluatedRows,
+      feature_importances: model.importances.slice(0, 12),
+      tree_rules: treeText,
+    };
+  }
+
+  if (toolName === "predict") {
+    const handle = requireFile(store, fileName);
+    const model = getModel(input["model_id"] as unknown as string | undefined);
+    if (!model)
+      throw new Error("No model has been trained in this conversation yet — train a decision tree first.");
+    const result = predictWith(model, asTable(handle.rows), {
+      ...(input["id_column"] ? { id_column: input["id_column"] as unknown as string } : {}),
+      ...(input["output_column"] ? { output_column: input["output_column"] as unknown as string } : {}),
+    });
+    const name = (input["output_file"] as unknown as string) || defaultName(handle.name, "predictions");
+    const finalName = store.add(
+      name,
+      { columns: result.columns, rows: result.rows },
+      `Decision-tree predictions for ${handle.name}`,
+      handle.name,
+    );
+    return {
+      created_file: finalName,
+      rowCount: result.rows.length,
+      predictionCounts: result.counts,
+      ...preview({ columns: result.columns, rows: result.rows }, 10),
+    };
+  }
+
+  if (toolName === "lof_outliers") {
+    const handle = requireFile(store, fileName);
+    const result = localOutlierFactor(asTable(handle.rows), {
+      ...(input["columns"] ? { columns: input["columns"] as unknown as string[] } : {}),
+      ...(input["id_column"] ? { id_column: input["id_column"] as unknown as string } : {}),
+      ...(input["k"] ? { k: Number(input["k"]) } : {}),
+      ...(input["contamination"] ? { contamination: Number(input["contamination"]) } : {}),
+      ...(input["outlier_label"] !== undefined
+        ? { outlier_label: input["outlier_label"] as unknown as string | number }
+        : {}),
+      ...(input["inlier_label"] !== undefined
+        ? { inlier_label: input["inlier_label"] as unknown as string | number }
+        : {}),
+      ...(input["prediction_column"] ? { prediction_column: input["prediction_column"] as unknown as string } : {}),
+      ...(input["score_column"] ? { score_column: input["score_column"] as unknown as string } : {}),
+    });
+    const name = (input["output_file"] as unknown as string) || defaultName(handle.name, "lof");
+    const finalName = store.add(
+      name,
+      { columns: result.columns, rows: result.rows },
+      `Local Outlier Factor on ${handle.name}`,
+      handle.name,
+    );
+    return {
+      created_file: finalName,
+      columnsUsed: result.columnsUsed,
+      k: result.k,
+      rowsScored: result.rowsScored,
+      outliersFound: result.outliers,
+      scoreThreshold: result.threshold,
+      ...preview({ columns: result.columns, rows: result.rows }, 10),
+    };
+  }
 
   throw new Error(`Unknown analysis tool "${toolName}".`);
+
 }

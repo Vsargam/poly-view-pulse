@@ -34,6 +34,9 @@ export const asTable = (rows: Row[]): Table => ({ columns: columnOrder(rows), ro
 const isBlank = (value: unknown) =>
   value === null || value === undefined || `${value}`.trim() === "";
 
+export const isBlankValue = isBlank;
+
+
 export function toNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (isBlank(value)) return null;
@@ -224,10 +227,23 @@ export function deriveColumns(table: Table, specs: DerivedColumn[]): Table & { n
 /* -------------------------------------------------------------- aggregate */
 
 export type Metric = {
-  op: "count" | "sum" | "avg" | "min" | "max" | "distinct_count";
+  op:
+    | "count"
+    | "sum"
+    | "avg"
+    | "min"
+    | "max"
+    | "distinct_count"
+    /** rows in the group / number of distinct values of `per_column` */
+    | "count_per_distinct"
+    /** distinct values of `column` / distinct values of `per_column` */
+    | "distinct_per_distinct";
   column?: string;
+  /** Denominator column for the ratio ops. */
+  per_column?: string;
   as?: string;
 };
+
 
 export type AggregateOptions = {
   group_by: string[];
@@ -252,11 +268,23 @@ export function aggregate(table: Table, options: AggregateOptions): Table {
     mins: (number | null)[];
     maxes: (number | null)[];
     distinct: (Set<string> | null)[];
+    perDistinct: (Set<string> | null)[];
   };
+
+  const isRatio = (metric: Metric) =>
+    metric.op === "count_per_distinct" || metric.op === "distinct_per_distinct";
 
   const metricColumns = metrics.map((metric) =>
     metric.column ? requireColumn(table.columns, metric.column, "metric column") : null,
   );
+  const perColumns = metrics.map((metric) =>
+    metric.per_column ? requireColumn(table.columns, metric.per_column, "metric column") : null,
+  );
+
+  const needsDistinct = metrics.map(
+    (metric) => metric.op === "distinct_count" || metric.op === "distinct_per_distinct",
+  );
+  const needsPerDistinct = metrics.map(isRatio);
 
   const buckets = new Map<string, Bucket>();
   for (const row of table.rows) {
@@ -272,19 +300,27 @@ export function aggregate(table: Table, options: AggregateOptions): Table {
         counts: metrics.map(() => 0),
         mins: metrics.map(() => null),
         maxes: metrics.map(() => null),
-        distinct: metrics.map((metric) => (metric.op === "distinct_count" ? new Set<string>() : null)),
+        distinct: metrics.map((_, index) => (needsDistinct[index] ? new Set<string>() : null)),
+        perDistinct: metrics.map((_, index) => (needsPerDistinct[index] ? new Set<string>() : null)),
       };
       buckets.set(id, bucket);
     }
     bucket.count += 1;
     for (let m = 0; m < metrics.length; m += 1) {
+      const metric = metrics[m]!;
       const column = metricColumns[m];
+      const perColumn = perColumns[m];
+      if (needsPerDistinct[m] && perColumn) {
+        const perRaw = row?.[perColumn];
+        if (!isBlank(perRaw)) bucket.perDistinct[m]!.add(`${perRaw}`);
+      }
       if (!column) continue;
       const raw = row?.[column];
-      if (metrics[m]!.op === "distinct_count") {
+      if (needsDistinct[m]) {
         if (!isBlank(raw)) bucket.distinct[m]!.add(`${raw}`);
-        continue;
+        if (metric.op === "distinct_count") continue;
       }
+      if (isRatio(metric)) continue;
       const value = toNumber(raw);
       if (value === null) continue;
       bucket.counts[m] = (bucket.counts[m] ?? 0) + 1;
@@ -314,7 +350,13 @@ export function aggregate(table: Table, options: AggregateOptions): Table {
       const name = metricNames[index] as string;
       if (metric.op === "count") row[name] = bucket.count;
       else if (metric.op === "distinct_count") row[name] = bucket.distinct[index]?.size ?? 0;
-      else if (metric.op === "sum") row[name] = round(bucket.sums[index] ?? 0, 4);
+      else if (metric.op === "count_per_distinct") {
+        const denominator = bucket.perDistinct[index]?.size ?? 0;
+        row[name] = denominator ? round(bucket.count / denominator, 4) : null;
+      } else if (metric.op === "distinct_per_distinct") {
+        const denominator = bucket.perDistinct[index]?.size ?? 0;
+        row[name] = denominator ? round((bucket.distinct[index]?.size ?? 0) / denominator, 4) : null;
+      } else if (metric.op === "sum") row[name] = round(bucket.sums[index] ?? 0, 4);
       else if (metric.op === "avg")
         row[name] = bucket.counts[index] ? round((bucket.sums[index] ?? 0) / (bucket.counts[index] as number), 4) : null;
       else if (metric.op === "min") row[name] = bucket.mins[index];
@@ -330,6 +372,29 @@ export function aggregate(table: Table, options: AggregateOptions): Table {
 
   return { columns, rows: sorted };
 }
+
+/* ------------------------------------------------------------ recode values */
+
+/** Map values in one column to new values, keeping the column's position. */
+export function recodeValues(
+  table: Table,
+  options: { column: string; mapping: { from: string | number; to: string | number }[]; unmatched?: "keep" | "blank" },
+): Table & { changed: number } {
+  const column = requireColumn(table.columns, options.column, "column");
+  const map = new Map<string, unknown>();
+  for (const entry of options.mapping ?? []) map.set(`${entry.from}`.trim().toLowerCase(), entry.to);
+  let changed = 0;
+  const rows = table.rows.map((row) => {
+    const key = `${row?.[column] ?? ""}`.trim().toLowerCase();
+    if (map.has(key)) {
+      changed += 1;
+      return { ...row, [column]: map.get(key) ?? null };
+    }
+    return options.unmatched === "blank" ? { ...row, [column]: null } : { ...row };
+  });
+  return { columns: table.columns, rows, changed };
+}
+
 
 /* ----------------------------------------------------------------- filters */
 

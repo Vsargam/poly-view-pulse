@@ -1,6 +1,7 @@
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChartBlock, type ChartSpec } from "@/components/ChartBlock";
 import { ChartGrid, type ChartGridSpec } from "@/components/ChartGrid";
+import { ConfusionMatrixBlock, type MatrixSpec } from "@/components/ConfusionMatrixBlock";
 import { MapBlock, type MapSpec } from "@/components/MapBlock";
 import { NetworkBlock, type NetworkSpec } from "@/components/NetworkBlock";
 
@@ -9,12 +10,13 @@ type Segment =
   | { kind: "chart"; spec: ChartSpec }
   | { kind: "charts"; spec: ChartGridSpec }
   | { kind: "map"; spec: MapSpec }
-  | { kind: "network"; spec: NetworkSpec };
+  | { kind: "network"; spec: NetworkSpec }
+  | { kind: "matrix"; spec: MatrixSpec };
 
-/** Splits assistant markdown into prose and inline ```chart / ```charts / ```map / ```network JSON blocks. */
+/** Splits assistant markdown into prose and inline ```chart / ```charts / ```map / ```network / ```matrix JSON blocks. */
 function splitSegments(text: string): Segment[] {
   const segments: Segment[] = [];
-  const pattern = /```(charts|chart|map|network)\s*([\s\S]*?)```/g;
+  const pattern = /```(charts|chart|map|network|matrix)\s*([\s\S]*?)```/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -26,6 +28,7 @@ function splitSegments(text: string): Segment[] {
       const kind = match[1];
       if (kind === "map") segments.push({ kind: "map", spec: spec as MapSpec });
       else if (kind === "network") segments.push({ kind: "network", spec: spec as NetworkSpec });
+      else if (kind === "matrix") segments.push({ kind: "matrix", spec: spec as MatrixSpec });
       else if (kind === "charts") segments.push({ kind: "charts", spec: spec as ChartGridSpec });
       else segments.push({ kind: "chart", spec: spec as ChartSpec });
     } catch {
@@ -51,6 +54,8 @@ export function AssistantAnswer({ text }: { text: string }) {
           <MapBlock key={index} spec={segment.spec} />
         ) : segment.kind === "network" ? (
           <NetworkBlock key={index} spec={segment.spec} />
+        ) : segment.kind === "matrix" ? (
+          <ConfusionMatrixBlock key={index} spec={segment.spec} />
         ) : (
           <MessageResponse key={index}>{segment.value}</MessageResponse>
         ),
