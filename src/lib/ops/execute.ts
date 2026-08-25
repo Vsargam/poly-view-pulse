@@ -1,3 +1,4 @@
+import { joinTables, stackTables } from "./combine";
 import {
   aggregate,
   asTable,
@@ -7,11 +8,15 @@ import {
   filterRows,
   lookupReplace,
   pairOverlap,
+  recodeValues,
   reorder,
   sortRows,
   type Row,
   type Table,
 } from "./engine";
+import { localOutlierFactor } from "./lof";
+import { getModel, predictWith, trainDecisionTree } from "./model";
+
 
 export type FileHandle = { id: string; name: string; rows: Row[] };
 
