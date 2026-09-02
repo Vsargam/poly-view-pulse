@@ -1,0 +1,14 @@
+{
+  "name": "poly-view-pulse-api",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.30",
+    "ai": "7.0.52",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "wrangler": "4.0.0",
+    "typescript": "5.8.3"
+  }
+}
