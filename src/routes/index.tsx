@@ -5,7 +5,7 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from "ai";
-import { Merge, Paperclip, RotateCcw, Scissors, Square } from "lucide-react";
+import { Loader2, Merge, Paperclip, RotateCcw, Scissors, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -67,8 +67,23 @@ const THREADS_KEY = "pvh.chat.threads.v1";
 const ACTIVE_KEY = "pvh.chat.active.v1";
 const MAX_THREADS = 40;
 const MAX_SPLIT_GROUPS = 12;
+const REQUEST_TIMEOUT_MS = 120_000;
+const FILE_PARSE_TIMEOUT_MS = 60_000;
+const CHAT_API_URL =
+  import.meta.env.VITE_CHAT_API_URL ||
+  "https://poly-view-pulse-api.vsargam7.workers.dev/api/chat";
 
-type StoredDataset = Pick<Dataset, "id" | "name" | "uploadedAt" | "rowCount" | "fullRowsIncluded"> & {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(resolve, reject).finally(() => window.clearTimeout(timeout));
+  });
+}
+
+type StoredDataset = Pick<
+  Dataset,
+  "id" | "name" | "uploadedAt" | "rowCount" | "fullRowsIncluded"
+> & {
   columnCount: number;
   columnNames: string[];
   claimType: string;
@@ -166,7 +181,24 @@ function Index() {
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: "/api/chat",
+        api: CHAT_API_URL,
+        fetch: async (input, init) => {
+          const controller = new AbortController();
+          const callerSignal = init?.signal;
+          const abort = () => controller.abort(callerSignal?.reason);
+          if (callerSignal?.aborted) abort();
+          else callerSignal?.addEventListener("abort", abort, { once: true });
+          const timeout = window.setTimeout(
+            () => controller.abort(new Error("Request timed out")),
+            REQUEST_TIMEOUT_MS,
+          );
+          try {
+            return await fetch(input, { ...init, signal: controller.signal });
+          } finally {
+            window.clearTimeout(timeout);
+            callerSignal?.removeEventListener("abort", abort);
+          }
+        },
         prepareSendMessagesRequest: ({ messages: outgoing, body }) => ({
           body: { ...body, messages: outgoing, datasets: payloadRef.current },
         }),
@@ -180,7 +212,11 @@ function Index() {
     datasetsRef.current = datasets;
   }, [datasets]);
 
-  const norm = (value: string) => value.trim().toLowerCase().replace(/\.(csv|tsv|json|xlsx|xls)$/i, "");
+  const norm = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/\.(csv|tsv|json|xlsx|xls)$/i, "");
 
   const fileStore = useMemo<FileStore>(
     () => ({
@@ -219,35 +255,40 @@ function Index() {
     [],
   );
 
-  const { messages, setMessages, sendMessage, status, error, stop, addToolResult } = useChat({
-    id: activeId,
-    transport,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    onToolCall: async ({ toolCall }) => {
-      try {
-        const output = await runOpTool(toolCall.toolName, toolCall.input, fileStore);
-        await addToolResult({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId, output });
-      } catch (toolError) {
-        await addToolResult({
-          tool: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-          output: {
-            error: toolError instanceof Error ? toolError.message : "The analysis step failed.",
-          },
-        });
-      }
-    },
-    onError: (chatError) => {
-      const message = chatError.message || "Something went wrong talking to the assistant.";
-      toast.error(
-        /429|rate limit/i.test(message)
-          ? "Too many requests right now — try again in a moment."
-          : /402|credit/i.test(message)
-            ? "AI credits are exhausted for this workspace."
-            : message,
-      );
-    },
-  });
+  const { messages, setMessages, sendMessage, regenerate, status, error, stop, addToolResult } =
+    useChat({
+      id: activeId,
+      transport,
+      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+      onToolCall: async ({ toolCall }) => {
+        try {
+          const output = await withTimeout(
+            runOpTool(toolCall.toolName, toolCall.input, fileStore),
+            REQUEST_TIMEOUT_MS,
+            "This analysis step took too long. Try a smaller file or split the request into smaller steps.",
+          );
+          await addToolResult({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId, output });
+        } catch (toolError) {
+          await addToolResult({
+            tool: toolCall.toolName,
+            toolCallId: toolCall.toolCallId,
+            output: {
+              error: toolError instanceof Error ? toolError.message : "The analysis step failed.",
+            },
+          });
+        }
+      },
+      onError: (chatError) => {
+        const message = chatError.message || "Something went wrong talking to the assistant.";
+        toast.error(
+          /429|rate limit/i.test(message)
+            ? "Too many requests right now — try again in a moment."
+            : /402|credit/i.test(message)
+              ? "AI credits are exhausted for this workspace."
+              : message,
+        );
+      },
+    });
 
   // On load: keep history, but start a fresh chat unless this browser tab was
   // already in the middle of one (survives reload, resets when the tab closes).
@@ -372,7 +413,11 @@ function Index() {
       for (const [index, file] of list.entries()) {
         const queuedId = queued[index]!.id;
         try {
-          const { rows, rowCount } = await parseFile(file);
+          const { rows, rowCount } = await withTimeout(
+            parseFile(file),
+            FILE_PARSE_TIMEOUT_MS,
+            "Reading this file took too long. Try a smaller file or split it into parts.",
+          );
           if (!rowCount) throw new Error("No rows could be read from that file.");
           const dataset = buildDataset(file.name, rows, rowCount);
           rowsRef.current.set(dataset.id, rows);
@@ -449,10 +494,7 @@ function Index() {
 
     const dataset = buildDataset(`Merged (${parts.length} files)`, rows, rows.length);
     rowsRef.current.set(dataset.id, rows);
-    const stored = toStored(
-      dataset,
-      `Stacked from ${parts.map((part) => part.name).join(" + ")}`,
-    );
+    const stored = toStored(dataset, `Stacked from ${parts.map((part) => part.name).join(" + ")}`);
     setDatasets((current) => [...current, stored]);
     toast.success(`Merged ${rows.length.toLocaleString()} rows into one file.`);
   }, [datasets]);
@@ -473,7 +515,11 @@ function Index() {
 
     const created: StoredDataset[] = [];
     for (const [key, groupRows] of groups) {
-      const dataset = buildDataset(`${source.name} — ${splitColumn}=${key}`, groupRows, groupRows.length);
+      const dataset = buildDataset(
+        `${source.name} — ${splitColumn}=${key}`,
+        groupRows,
+        groupRows.length,
+      );
       rowsRef.current.set(dataset.id, groupRows);
       created.push(toStored(dataset, `Split from ${source.name} by ${splitColumn}`));
     }
@@ -539,258 +585,270 @@ function Index() {
 
   return (
     <DataFilesContext.Provider value={filesContext}>
-    <div
-      className="mx-auto flex h-screen w-full max-w-6xl gap-4 px-4 pb-4"
-      onDragOver={(event) => {
-        event.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(event) => {
-        event.preventDefault();
-        setDragging(false);
-        void handleFiles(event.dataTransfer?.files ?? null);
-      }}
-    >
-      <ThreadSidebar
-        threads={summaries}
-        activeId={activeId}
-        onSelect={selectThread}
-        onNew={startNewChat}
-        onDelete={deleteThread}
-      />
+      <div
+        className="mx-auto flex h-screen w-full max-w-6xl gap-4 px-4 pb-4"
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          void handleFiles(event.dataTransfer?.files ?? null);
+        }}
+      >
+        <ThreadSidebar
+          threads={summaries}
+          activeId={activeId}
+          onSelect={selectThread}
+          onNew={startNewChat}
+          onDelete={deleteThread}
+        />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="glass-panel mt-3 flex items-center gap-3 rounded-2xl px-4 py-3">
-          <img
-            src={logo}
-            alt="Poly View Health"
-            width={36}
-            height={36}
-            className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
-          />
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold tracking-tight">
-              Poly View Health — Conversational Claims Analyst
-            </h1>
-            <p className="truncate text-xs text-muted-foreground">
-              Preventing fraud, waste &amp; abuse — ask anything, in plain English
-            </p>
-          </div>
-
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            accept=".csv,.tsv,.tab,.json,.xlsx,.xls"
-            className="hidden"
-            onChange={(event) => void handleFiles(event.target.files)}
-          />
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-            <Paperclip className="mr-2 h-4 w-4" />
-            {pending.length ? "Reading…" : "Upload data"}
-          </Button>
-          {messages.length > 0 ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="Clear conversation"
-              aria-label="Clear conversation"
-              onClick={clearThread}
-            >
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-          ) : null}
-        </header>
-
-        {dragging ? (
-          <p className="mt-2 rounded-xl border border-dashed border-accent/60 px-3 py-2 text-center text-xs text-accent">
-            Drop your files to add them to this chat
-          </p>
-        ) : null}
-
-        {cards.length > 0 ? (
-          <section aria-labelledby="datasets-heading" className="flex flex-col gap-2 py-3">
-            <h2 id="datasets-heading" className="sr-only">
-              Uploaded and generated data files
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {cards.map((card) => (
-                <DatasetCard
-                  key={card.id}
-                  info={card}
-                  onRemove={removeDataset}
-                  onDownload={downloadDataset}
-                />
-              ))}
+        <main className="flex min-w-0 flex-1 flex-col">
+          <header className="glass-panel mt-3 flex items-center gap-3 rounded-2xl px-4 py-3">
+            <img
+              src={logo}
+              alt="Poly View Health"
+              width={36}
+              height={36}
+              className="h-9 w-9 drop-shadow-[0_0_12px_var(--color-primary)]"
+            />
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-base font-semibold tracking-tight">
+                Poly View Health — Conversational Claims Analyst
+              </h1>
+              <p className="truncate text-xs text-muted-foreground">
+                Preventing fraud, waste &amp; abuse — ask anything, in plain English
+              </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept=".csv,.tsv,.tab,.json,.xlsx,.xls"
+              className="hidden"
+              onChange={(event) => void handleFiles(event.target.files)}
+            />
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+              <Paperclip className="mr-2 h-4 w-4" />
+              {pending.length ? "Reading…" : "Upload data"}
+            </Button>
+            {messages.length > 0 ? (
               <Button
-                variant="outline"
-                size="sm"
-                disabled={mergeableIds.length < 2}
-                onClick={mergeFiles}
+                variant="ghost"
+                size="icon-sm"
+                title="Clear conversation"
+                aria-label="Clear conversation"
+                onClick={clearThread}
               >
-                <Merge className="mr-2 h-3.5 w-3.5" />
-                Merge files
+                <RotateCcw className="h-4 w-4" />
               </Button>
+            ) : null}
+          </header>
 
-              <select
-                aria-label="File to split"
-                value={splitTarget}
-                onChange={(event) => {
-                  setSplitTarget(event.target.value);
-                  setSplitColumn("");
-                }}
-                className="h-8 rounded-md border border-border bg-secondary/40 px-2 text-xs"
-              >
-                <option value="">Split which file…</option>
-                {datasets
-                  .filter((dataset) => rowsRef.current.has(dataset.id))
-                  .map((dataset) => (
-                    <option key={dataset.id} value={dataset.id}>
-                      {dataset.name}
+          {dragging ? (
+            <p className="mt-2 rounded-xl border border-dashed border-accent/60 px-3 py-2 text-center text-xs text-accent">
+              Drop your files to add them to this chat
+            </p>
+          ) : null}
+
+          {cards.length > 0 ? (
+            <section aria-labelledby="datasets-heading" className="flex flex-col gap-2 py-3">
+              <h2 id="datasets-heading" className="sr-only">
+                Uploaded and generated data files
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {cards.map((card) => (
+                  <DatasetCard
+                    key={card.id}
+                    info={card}
+                    onRemove={removeDataset}
+                    onDownload={downloadDataset}
+                  />
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={mergeableIds.length < 2}
+                  onClick={mergeFiles}
+                >
+                  <Merge className="mr-2 h-3.5 w-3.5" />
+                  Merge files
+                </Button>
+
+                <select
+                  aria-label="File to split"
+                  value={splitTarget}
+                  onChange={(event) => {
+                    setSplitTarget(event.target.value);
+                    setSplitColumn("");
+                  }}
+                  className="h-8 rounded-md border border-border bg-secondary/40 px-2 text-xs"
+                >
+                  <option value="">Split which file…</option>
+                  {datasets
+                    .filter((dataset) => rowsRef.current.has(dataset.id))
+                    .map((dataset) => (
+                      <option key={dataset.id} value={dataset.id}>
+                        {dataset.name}
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  aria-label="Column to split by"
+                  value={splitColumn}
+                  disabled={!splitColumns.length}
+                  onChange={(event) => setSplitColumn(event.target.value)}
+                  className="h-8 rounded-md border border-border bg-secondary/40 px-2 text-xs"
+                >
+                  <option value="">by column…</option>
+                  {splitColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
                     </option>
                   ))}
-              </select>
+                </select>
 
-              <select
-                aria-label="Column to split by"
-                value={splitColumn}
-                disabled={!splitColumns.length}
-                onChange={(event) => setSplitColumn(event.target.value)}
-                className="h-8 rounded-md border border-border bg-secondary/40 px-2 text-xs"
-              >
-                <option value="">by column…</option>
-                {splitColumns.map((column) => (
-                  <option key={column} value={column}>
-                    {column}
-                  </option>
-                ))}
-              </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!splitTarget || !splitColumn}
+                  onClick={splitFile}
+                >
+                  <Scissors className="mr-2 h-3.5 w-3.5" />
+                  Split
+                </Button>
+                <span className="text-[11px]">
+                  Originals are kept — merges and splits add new files.
+                </span>
+              </div>
+            </section>
+          ) : null}
 
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!splitTarget || !splitColumn}
-                onClick={splitFile}
-              >
-                <Scissors className="mr-2 h-3.5 w-3.5" />
-                Split
-              </Button>
-              <span className="text-[11px]">Originals are kept — merges and splits add new files.</span>
-            </div>
-          </section>
-        ) : null}
+          <h2 id="conversation-heading" className="sr-only">
+            Conversation with the data assistant
+          </h2>
+          <Conversation aria-labelledby="conversation-heading" className="min-h-0 flex-1">
+            <ConversationContent className="gap-6 px-0">
+              {messages.length === 0 ? (
+                <ConversationEmptyState
+                  icon={
+                    <img
+                      src={logo}
+                      alt=""
+                      width={56}
+                      height={56}
+                      className="h-14 w-14"
+                      loading="lazy"
+                    />
+                  }
+                  title="Ask about your claims data"
+                  description="Drop in one or more CSV, Excel, JSON or TSV files, then ask anything — a number, a chart, a map, a cleanup, an anomaly check, or just help thinking about what to look at."
+                />
+              ) : null}
 
-        <h2 id="conversation-heading" className="sr-only">
-          Conversation with the data assistant
-        </h2>
-        <Conversation aria-labelledby="conversation-heading" className="min-h-0 flex-1">
-          <ConversationContent className="gap-6 px-0">
-            {messages.length === 0 ? (
-              <ConversationEmptyState
-                icon={
-                  <img src={logo} alt="" width={56} height={56} className="h-14 w-14" loading="lazy" />
-                }
-                title="Ask about your claims data"
-                description="Drop in one or more CSV, Excel, JSON or TSV files, then ask anything — a number, a chart, a map, a cleanup, an anomaly check, or just help thinking about what to look at."
-              />
-            ) : null}
+              {messages.map((message, index) => {
+                const text = messageText(message);
+                const reasoning = reasoningText(message);
+                const streamingNow =
+                  status === "streaming" &&
+                  index === messages.length - 1 &&
+                  message.role === "assistant";
+                return (
+                  <Message key={message.id} from={message.role}>
+                    <MessageContent>
+                      {message.role === "assistant" ? (
+                        <>
+                          {reasoning && !text ? (
+                            <p className="text-xs italic text-muted-foreground">
+                              {reasoning.slice(-400)}
+                            </p>
+                          ) : null}
+                          {text ? <AssistantAnswer text={text} /> : null}
+                          {streamingNow ? (
+                            <span
+                              aria-hidden
+                              className="inline-block h-4 w-[2px] animate-pulse bg-accent align-middle"
+                            />
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{text}</p>
+                      )}
+                    </MessageContent>
+                  </Message>
+                );
+              })}
 
-            {messages.map((message, index) => {
-              const text = messageText(message);
-              const reasoning = reasoningText(message);
-              const streamingNow =
-                status === "streaming" &&
-                index === messages.length - 1 &&
-                message.role === "assistant";
-              return (
-                <Message key={message.id} from={message.role}>
+              {status === "submitted" ? (
+                <Message from="assistant">
                   <MessageContent>
-                    {message.role === "assistant" ? (
-                      <>
-                        {reasoning && !text ? (
-                          <p className="text-xs italic text-muted-foreground">
-                            {reasoning.slice(-400)}
-                          </p>
-                        ) : null}
-                        {text ? <AssistantAnswer text={text} /> : null}
-                        {streamingNow ? (
-                          <span
-                            aria-hidden
-                            className="inline-block h-4 w-[2px] animate-pulse bg-accent align-middle"
-                          />
-                        ) : null}
-                      </>
-                    ) : (
-                      <p className="whitespace-pre-wrap">{text}</p>
-                    )}
+                    <Shimmer>Thinking…</Shimmer>
                   </MessageContent>
                 </Message>
-              );
-            })}
-
-            {status === "submitted" ? (
-              <Message from="assistant">
-                <MessageContent>
-                  <Shimmer>Thinking…</Shimmer>
-                </MessageContent>
-              </Message>
-            ) : null}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-
-        {error ? (
-          <p className="pb-2 text-xs text-destructive">
-            {error.message || "The last request failed. Try again."}
-          </p>
-        ) : null}
-
-        <PromptInput
-          onSubmit={(_message, event) => {
-            event.preventDefault();
-            submit(input);
-          }}
-        >
-          <PromptInputTextarea
-            aria-label="Ask the Poly View Health data assistant a question"
-            ref={textareaRef}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={
-              datasets.length
-                ? "Ask anything — “which providers bill far above their peers for the same CPT code?”"
-                : "Ask anything, or drop in a file to analyze"
-            }
-          />
-          <PromptInputFooter className="justify-between">
-            <span className="text-[11px] text-muted-foreground">
-              {datasets.length
-                ? `Grounded in ${datasets.length} file${datasets.length > 1 ? "s" : ""}`
-                : "No file uploaded yet"}
-            </span>
-            <span className="flex items-center gap-2">
-              {busy ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Stop generating"
-                  onClick={() => void stop()}
-                >
-                  <Square className="mr-2 h-3.5 w-3.5" />
-                  Stop
-                </Button>
               ) : null}
-              <PromptInputSubmit status={status} disabled={!input.trim() && !busy} />
-            </span>
-          </PromptInputFooter>
-        </PromptInput>
-      </main>
-    </div>
+            </ConversationContent>
+            <ConversationScrollButton />
+          </Conversation>
+
+          {error ? (
+            <div className="flex items-center justify-between gap-3 pb-2 text-xs text-destructive">
+              <p>{error.message || "The last request failed. Try again."}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void regenerate()}>
+                <Loader2 className="mr-2 h-3.5 w-3.5" /> Retry
+              </Button>
+            </div>
+          ) : null}
+
+          <PromptInput
+            onSubmit={(_message, event) => {
+              event.preventDefault();
+              submit(input);
+            }}
+          >
+            <PromptInputTextarea
+              aria-label="Ask the Poly View Health data assistant a question"
+              ref={textareaRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={
+                datasets.length
+                  ? "Ask anything — “which providers bill far above their peers for the same CPT code?”"
+                  : "Ask anything, or drop in a file to analyze"
+              }
+            />
+            <PromptInputFooter className="justify-between">
+              <span className="text-[11px] text-muted-foreground">
+                {datasets.length
+                  ? `Grounded in ${datasets.length} file${datasets.length > 1 ? "s" : ""}`
+                  : "No file uploaded yet"}
+              </span>
+              <span className="flex items-center gap-2">
+                {busy ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Stop generating"
+                    onClick={() => void stop()}
+                  >
+                    <Square className="mr-2 h-3.5 w-3.5" />
+                    Stop
+                  </Button>
+                ) : null}
+                <PromptInputSubmit status={status} disabled={!input.trim() && !busy} />
+              </span>
+            </PromptInputFooter>
+          </PromptInput>
+        </main>
+      </div>
     </DataFilesContext.Provider>
   );
 }
