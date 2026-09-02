@@ -21,10 +21,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm install --legacy-peer-deps
       - run: npm run build
         env:
-          VITE_CHAT_API_URL: ${{ vars.VITE_CHAT_API_URL }}
+          VITE_CHAT_API_URL: ${{ vars.VITE_CHAT_API_URL || 'https://poly-view-pulse-api.vsargam7.workers.dev/api/chat' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .output/public
