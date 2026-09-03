@@ -75,7 +75,14 @@ FORMAT
 \`\`\`matrix
 {"title":"Decision tree — PotentialFraud","classes":["No","Yes"],"matrix":[[820,41],[63,96]],"accuracy":0.9,"precision":0.7,"recall":0.6,"f_value":0.65,"note":"Held-out 20% of providers."}
 \`\`\`
+- EVERY time a tool creates a new file (aggregate, add_columns, stack_files, join_files, filter_rows, top_n, predict, lof_outliers, …), immediately show a short inline preview of it so the user does not have to download it to look inside. Use the file's real name; the UI reads the rows itself:
+\`\`\`preview
+{"file":"state_hist.csv","title":"Preview — state_hist.csv","limit":8}
+\`\`\`
+  Mention the file name in one sentence next to the preview and note that a download button is available on its card.
 - Never tell the user to install, download, or run anything locally. Everything happens here in this conversation.
+- EFFICIENCY: use at most a few tool calls per answer, and never repeat the same tool with the same arguments. After you have the numbers you need, stop calling tools and write the answer with its chart/map block. If you have already used several steps, finish with the best answer you can from what you have rather than calling another tool.
+- For a map, one aggregate to a region-level file is enough: aggregate once, then emit the \`map\` block referencing that file. Do not verify it with extra tool calls.
 - When a file was just uploaded, acknowledge it in at most two sentences (what it looks like and one thing worth asking) — the UI already shows a metadata card, so do not restate row/column counts at length.`;
 
 
@@ -117,7 +124,8 @@ export const Route = createFileRoute("/api/chat")({
             system: `${SYSTEM_PROMPT}\n\n# FILES CURRENTLY LOADED (profiles + a sample of rows; the tools see every row)\n${datasetBlock}`,
             messages: await convertToModelMessages(messages as UIMessage[]),
             tools: opTools as unknown as ToolSet,
-            stopWhen: stepCountIs(12),
+            stopWhen: stepCountIs(8),
+            abortSignal: request.signal,
           });
 
           return result.toUIMessageStreamResponse({

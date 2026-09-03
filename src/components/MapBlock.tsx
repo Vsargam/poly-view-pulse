@@ -48,17 +48,34 @@ const numberFmt = (value: number) =>
 
 function useAtlas(level: MapLevel) {
   const [topology, setTopology] = useState<unknown>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     setTopology(null);
-    void ATLASES[level]().then((module) => {
-      if (alive) setTopology((module as { default?: unknown }).default ?? module);
-    });
+    setFailed(null);
+    const timeout = window.setTimeout(() => {
+      if (alive) setFailed("The map outlines are taking unusually long to load.");
+    }, 15_000);
+    ATLASES[level]()
+      .then((module) => {
+        if (!alive) return;
+        setTopology((module as { default?: unknown }).default ?? module);
+      })
+      .catch((error: unknown) => {
+        if (!alive) return;
+        setFailed(
+          error instanceof Error
+            ? `The map outlines could not be loaded (${error.message}).`
+            : "The map outlines could not be loaded.",
+        );
+      })
+      .finally(() => window.clearTimeout(timeout));
     return () => {
       alive = false;
+      window.clearTimeout(timeout);
     };
   }, [level]);
-  return topology;
+  return { topology, failed };
 }
 
 /** Normalise a row's region value to the id/name the atlas uses at this level. */
@@ -104,7 +121,7 @@ export function MapBlock({ spec }: { spec: MapSpec }) {
   const [ramp, setRamp] = useState<keyof typeof RAMPS>("Ocean");
   const [hover, setHover] = useState<{ name: string; value?: number } | null>(null);
 
-  const topology = useAtlas(level);
+  const { topology, failed } = useAtlas(level);
 
   const values = useMemo(() => {
     const map = new Map<string, { value: number; label: string }>();
@@ -198,8 +215,13 @@ export function MapBlock({ spec }: { spec: MapSpec }) {
       ) : (
         <>
           <div className="relative h-72 w-full overflow-hidden rounded-lg bg-secondary/40">
-            {!topology ? (
-              <p className="p-4 text-xs text-muted-foreground">Loading map…</p>
+            {failed && !topology ? (
+              <p className="p-4 text-xs text-destructive">
+                {failed} The numbers behind it are still correct — try switching the geography level
+                or ask for a bar chart instead.
+              </p>
+            ) : !topology ? (
+              <p className="p-4 text-xs text-muted-foreground">Loading map outlines…</p>
             ) : (
               <ComposableMap
                 projection={level === "world" ? "geoEqualEarth" : "geoAlbersUsa"}
