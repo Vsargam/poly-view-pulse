@@ -77,7 +77,10 @@ function corsHeaders(origin?: string) {
 }
 
 export default {
-  async fetch(request: Request, env: { ANTHROPIC_API_KEY: string }) {
+  async fetch(
+    request: Request,
+    env: { ANTHROPIC_API_KEY: string; ANTHROPIC_WORKSPACE_ID?: string },
+  ) {
     const origin = request.headers.get("Origin") || undefined;
 
     if (request.method === "OPTIONS") {
