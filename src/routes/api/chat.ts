@@ -136,6 +136,9 @@ export const Route = createFileRoute("/api/chat")({
               const raw = `${status ?? ""} ${message} ${body}`.trim();
               console.error("[api/chat] stream error:", raw);
 
+              if (/anthropic-workspace-id/i.test(raw)) {
+                return "This Anthropic key is identity-linked, so it needs a workspace id. Save the workspace id (wrkspc_...) as ANTHROPIC_WORKSPACE_ID for this project, or use a plain workspace API key instead.";
+              }
               if (status === 401 || /invalid x-api-key|authentication_error/i.test(raw)) {
                 return "The Claude API key was rejected. Please check the key saved for this project.";
               }
