@@ -134,8 +134,12 @@ export default {
             .join("\n\n")
         : "No file has been uploaded yet.";
 
+      const workspaceId = env.ANTHROPIC_WORKSPACE_ID;
       const anthropic = createAnthropic({
         apiKey: env.ANTHROPIC_API_KEY,
+        ...(workspaceId
+          ? { headers: { "anthropic-workspace-id": workspaceId } }
+          : {}),
       });
 
       const result = streamText({
