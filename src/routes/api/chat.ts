@@ -105,7 +105,11 @@ export const Route = createFileRoute("/api/chat")({
               .join("\n\n")
           : "No file has been uploaded yet.";
 
-        const anthropic = createAnthropic({ apiKey });
+        const workspaceId = process.env["ANTHROPIC_WORKSPACE_ID"];
+        const anthropic = createAnthropic({
+          apiKey,
+          ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
+        });
 
         try {
           const result = streamText({
