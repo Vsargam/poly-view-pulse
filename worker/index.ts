@@ -77,7 +77,10 @@ function corsHeaders(origin?: string) {
 }
 
 export default {
-  async fetch(request: Request, env: { ANTHROPIC_API_KEY: string }) {
+  async fetch(
+    request: Request,
+    env: { ANTHROPIC_API_KEY: string; ANTHROPIC_WORKSPACE_ID?: string },
+  ) {
     const origin = request.headers.get("Origin") || undefined;
 
     if (request.method === "OPTIONS") {
@@ -134,8 +137,12 @@ export default {
             .join("\n\n")
         : "No file has been uploaded yet.";
 
+      const workspaceId = env.ANTHROPIC_WORKSPACE_ID;
       const anthropic = createAnthropic({
         apiKey: env.ANTHROPIC_API_KEY,
+        ...(workspaceId
+          ? { headers: { "anthropic-workspace-id": workspaceId } }
+          : {}),
       });
 
       const result = streamText({
