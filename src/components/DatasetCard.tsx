@@ -1,4 +1,8 @@
-import { Download, FileSpreadsheet, Loader2, TriangleAlert, X } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, Loader2, TriangleAlert, X } from "lucide-react";
+import { useState } from "react";
+
+import { RowPreview } from "@/components/RowPreview";
+import type { Row } from "@/lib/ops/engine";
 
 export type DatasetCardInfo = {
   id: string;
@@ -18,13 +22,19 @@ export function DatasetCard({
   info,
   onRemove,
   onDownload,
+  getRows,
 }: {
   info: DatasetCardInfo;
   onRemove?: (id: string) => void;
   onDownload?: (id: string) => void;
+  getRows?: (id: string) => Row[] | null;
 }) {
+  const [open, setOpen] = useState(false);
+  const previewRows = open && getRows ? getRows(info.id) : null;
+
   return (
-    <div className="glass-panel flex min-w-[15rem] max-w-full flex-1 items-start gap-3 rounded-xl px-3 py-2.5">
+    <div className="glass-panel flex min-w-[15rem] max-w-full flex-1 flex-col gap-2 rounded-xl px-3 py-2.5">
+    <div className="flex items-start gap-3">
       <span className="mt-0.5">
         {info.status === "parsing" ? (
           <Loader2 className="h-4 w-4 animate-spin text-accent" />
@@ -71,6 +81,19 @@ export function DatasetCard({
         </button>
       ) : null}
 
+      {getRows && info.status === "ready" ? (
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          aria-label={`${open ? "Hide" : "Show"} preview of ${info.name}`}
+          aria-expanded={open}
+          title="Preview first rows"
+          className="rounded-full p-1 text-accent transition-colors hover:bg-secondary"
+        >
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+      ) : null}
+
       {onRemove && info.status !== "parsing" ? (
         <button
           type="button"
@@ -81,6 +104,9 @@ export function DatasetCard({
           <X className="h-3 w-3" />
         </button>
       ) : null}
+    </div>
+
+      {open ? <RowPreview rows={previewRows ?? []} totalRows={info.rowCount} /> : null}
     </div>
   );
 }

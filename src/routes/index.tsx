@@ -253,28 +253,47 @@ function Index() {
     [],
   );
 
+  /** Set the moment Stop is pressed: blocks the automatic follow-up request and
+   * makes any in-flight analysis step resolve immediately. */
+  const stoppedRef = useRef(false);
+  const addToolResultRef = useRef<
+    ((args: { tool: string; toolCallId: string; output: unknown }) => Promise<void>) | null
+  >(null);
+
   const { messages, setMessages, sendMessage, regenerate, status, error, stop, addToolResult } =
     useChat({
       id: activeId,
       transport,
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-      onToolCall: async ({ toolCall }) => {
-        try {
-          const output = await withTimeout(
-            runOpTool(toolCall.toolName, toolCall.input, fileStore),
-            REQUEST_TIMEOUT_MS,
-            "This analysis step took too long. Try a smaller file or split the request into smaller steps.",
-          );
-          await addToolResult({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId, output });
-        } catch (toolError) {
-          await addToolResult({
-            tool: toolCall.toolName,
-            toolCallId: toolCall.toolCallId,
-            output: {
+      sendAutomaticallyWhen: (options) =>
+        !stoppedRef.current && lastAssistantMessageIsCompleteWithToolCalls(options),
+      // Runs the analysis step outside this callback: reporting the result from
+      // inside it would deadlock the chat's internal job queue and the turn
+      // would appear to load forever.
+      onToolCall: ({ toolCall }) => {
+        void (async () => {
+          const report = (output: unknown) =>
+            addToolResultRef.current?.({
+              tool: toolCall.toolName,
+              toolCallId: toolCall.toolCallId,
+              output,
+            });
+          if (stoppedRef.current) {
+            void report({ error: "Stopped by the user before this step ran." });
+            return;
+          }
+          try {
+            const output = await withTimeout(
+              runOpTool(toolCall.toolName, toolCall.input, fileStore),
+              REQUEST_TIMEOUT_MS,
+              "This analysis step took too long. Try a smaller file or split the request into smaller steps.",
+            );
+            void report(output);
+          } catch (toolError) {
+            void report({
               error: toolError instanceof Error ? toolError.message : "The analysis step failed.",
-            },
-          });
-        }
+            });
+          }
+        })();
       },
       onError: (chatError) => {
         const message = chatError.message || "Something went wrong talking to the assistant.";
@@ -346,12 +365,65 @@ function Index() {
     payloadRef.current = datasetPayload;
   }, [datasetPayload]);
 
+  useEffect(() => {
+    addToolResultRef.current = addToolResult as unknown as (args: {
+      tool: string;
+      toolCallId: string;
+      output: unknown;
+    }) => Promise<void>;
+  }, [addToolResult]);
+
   const busy = status === "submitted" || status === "streaming";
+  const [stopping, setStopping] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  /** Elapsed seconds for the current turn, so a long answer never looks frozen. */
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    setElapsed(0);
+    const timer = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
+  useEffect(() => {
+    if (!busy) setStopping(false);
+  }, [busy]);
+
+  /** Safety net: if an analysis step finished just after the stream closed, the
+   * automatic follow-up request can be missed and the turn would hang forever.
+   * Send the continuation ourselves once the turn is idle with finished tools. */
+  useEffect(() => {
+    if (busy || stoppedRef.current || error) return;
+    if (!lastAssistantMessageIsCompleteWithToolCalls({ messages })) return;
+    const timer = window.setTimeout(() => {
+      if (stoppedRef.current) return;
+      void sendMessage(undefined, { body: { datasets: payloadRef.current } });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [busy, error, messages, sendMessage]);
+
+  /** Cancels the whole turn: the request, the automatic tool follow-up and any
+   * pending analysis step. */
+  const stopTurn = useCallback(() => {
+    stoppedRef.current = true;
+    setStopping(true);
+    void stop();
+    focusInput();
+  }, [focusInput, stop]);
 
   const submit = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || busy) return;
+      stoppedRef.current = false;
+      setStopping(false);
       setInput("");
       void sendMessage({ text: trimmed }, { body: { datasets: datasetPayload } });
       focusInput();
@@ -438,6 +510,7 @@ function Index() {
       setDatasets(next);
 
       const names = added.map((dataset) => `"${dataset.name}"`).join(", ");
+      stoppedRef.current = false;
       void sendMessage(
         {
           text: `I just uploaded ${added.length > 1 ? `${added.length} files` : "a file"}: ${names}. In at most two sentences, say what this data looks like and name one specific question worth asking about it. Do not list the columns or repeat the row counts.`,
@@ -665,6 +738,7 @@ function Index() {
                     info={card}
                     onRemove={removeDataset}
                     onDownload={downloadDataset}
+                    getRows={(id) => rowsRef.current.get(id) ?? null}
                   />
                 ))}
               </div>
@@ -785,10 +859,16 @@ function Index() {
                 );
               })}
 
-              {status === "submitted" ? (
+              {status === "submitted" && !stopping ? (
                 <Message from="assistant">
                   <MessageContent>
-                    <Shimmer>Thinking…</Shimmer>
+                    <Shimmer>
+                      {elapsed > 8
+                        ? `Working through your data… ${elapsed}s`
+                        : elapsed > 2
+                          ? `Thinking… ${elapsed}s`
+                          : "Thinking…"}
+                    </Shimmer>
                   </MessageContent>
                 </Message>
               ) : null}
@@ -835,13 +915,18 @@ function Index() {
                     variant="ghost"
                     size="sm"
                     aria-label="Stop generating"
-                    onClick={() => void stop()}
+                    disabled={stopping}
+                    onClick={stopTurn}
                   >
                     <Square className="mr-2 h-3.5 w-3.5" />
-                    Stop
+                    {stopping ? "Stopping…" : `Stop${elapsed > 2 ? ` · ${elapsed}s` : ""}`}
                   </Button>
                 ) : null}
-                <PromptInputSubmit status={status} disabled={!input.trim() && !busy} />
+                <PromptInputSubmit
+                  status={busy && stopping ? "ready" : status}
+                  disabled={!input.trim() && !busy}
+                  onStop={stopTurn}
+                />
               </span>
             </PromptInputFooter>
           </PromptInput>
