@@ -365,6 +365,14 @@ function Index() {
     payloadRef.current = datasetPayload;
   }, [datasetPayload]);
 
+  useEffect(() => {
+    addToolResultRef.current = addToolResult as unknown as (args: {
+      tool: string;
+      toolCallId: string;
+      output: unknown;
+    }) => Promise<void>;
+  }, [addToolResult]);
+
   const busy = status === "submitted" || status === "streaming";
   const [stopping, setStopping] = useState(false);
   const [elapsed, setElapsed] = useState(0);
