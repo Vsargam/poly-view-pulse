@@ -69,7 +69,7 @@ const MAX_THREADS = 40;
 const MAX_SPLIT_GROUPS = 12;
 const REQUEST_TIMEOUT_MS = 120_000;
 const FILE_PARSE_TIMEOUT_MS = 60_000;
-const CHAT_API_URL = import.meta.env.VITE_CHAT_API_URL || "/api/chat";
+const CHAT_API_URL = import.meta.env["VITE_CHAT_API_URL"] || "/api/chat";
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
