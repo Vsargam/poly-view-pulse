@@ -400,10 +400,8 @@ function Index() {
    * automatic follow-up request can be missed and the turn would hang forever.
    * Send the continuation ourselves once the turn is idle with finished tools. */
   useEffect(() => {
-    console.log("DBG effect", busy, !!error, JSON.stringify((messages.at(-1)?.parts ?? []).map((p: any) => [p.type, p.state, p.providerExecuted])));
     if (busy || stoppedRef.current || error) return;
     if (!lastAssistantMessageIsCompleteWithToolCalls({ messages })) return;
-    console.log("DBG follow-up firing");
     const timer = window.setTimeout(() => {
       if (stoppedRef.current) return;
       void sendMessage(undefined, { body: { datasets: payloadRef.current } });
